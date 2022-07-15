@@ -1,0 +1,26 @@
+@startuml k8s-job-lifecycle
+
+edc_provider -> gx4ki_k8s_client: get data
+activate gx4ki_k8s_client #DarkSalmon
+gx4ki_k8s_client -> k8s_api: apply gx4ki_job
+
+gx4ki_k8s_client -> gx4ki_k8s_client: wait for result
+activate gx4ki_k8s_client #Salmon
+
+k8s_api -> gx4ki_job: <<schedule job>>
+activate gx4ki_job
+
+gx4ki_k8s_client --> gx4ki_job: watch status of job and container
+
+gx4ki_job -> gx4ki_job: get input data
+gx4ki_job -> gx4ki_job: do entrypoint
+
+
+gx4ki_k8s_client <-> gx4ki_job : exec into side-car and read data
+deactivate gx4ki_job
+deactivate gx4ki_k8s_client
+
+gx4ki_k8s_client -> edc_provider: return data
+deactivate gx4ki_k8s_client
+
+@enduml
