@@ -1,11 +1,10 @@
-import socket
 import uuid
-from fastapi.responses import StreamingResponse, PlainTextResponse
-from threading import Event
 from time import sleep
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from kubernetes import client, config
 from kubernetes.stream import stream
-from fastapi import FastAPI, Request
+from kubernetes.client.exceptions import ApiException
 
 
 app = FastAPI()
@@ -30,11 +29,11 @@ async def list_pods():
     return result
 
 
-def create_job_object(job_uuid) -> client.V1Job:
+def create_job_object(job_uuid, job_namespace="default") -> client.V1Job:
     container = client.V1Container(
         name="dummy-job",
         image="ralphhso/dummy-job:latest",
-        image_pull_policy="Never",
+        image_pull_policy="IfNotPresent",
         args=["entrypoint.sh"],
         command=["/bin/bash"],
         # "-c", "while true; do sleep 10; done"],
@@ -51,9 +50,10 @@ def create_job_object(job_uuid) -> client.V1Job:
         ]
     )
     side_car = client.V1Container(
-        name="dummy-side-car",
+        name="data-side-car",
         image="alpine",
-        command=["/bin/sh", "-c", "while true; do sleep 10; done"],
+        command=["/bin/sh", "-c",
+                 "while true; do sleep 10; done"],
         volume_mounts=[
             client.V1VolumeMount(
                 mount_path="/output",
@@ -64,7 +64,6 @@ def create_job_object(job_uuid) -> client.V1Job:
     template = client.V1PodTemplateSpec(
         metadata=client.V1ObjectMeta(
             labels={"job_name": "dummy",
-                    "myjob": "dummy",
                     "gx4ki.job.uuid": job_uuid}),
         spec=client.V1PodSpec(restart_policy="Never",
                               containers=[container, side_car],
@@ -82,45 +81,43 @@ def create_job_object(job_uuid) -> client.V1Job:
     job = client.V1Job(
         api_version="batch/v1",
         kind="Job",
-        metadata=client.V1ObjectMeta(name="dummy"),
+        metadata=client.V1ObjectMeta(name=job_uuid),
         spec=spec,
     )
     return job
 
 
-def create_job(api_instance, job):
-    api_response = api_instance.create_namespaced_job(
-        body=job,
-        namespace="default")
-    print("Job created. status='%s'" % str(api_response.status))
+def create_job(job):
+    return client.BatchV1Api().create_namespaced_job(body=job,
+                                                     namespace="default")
 
 
 def get_pod_name(job_uuid):
     job_completed = False
-    while not job_completed:
-        pod_list = client.CoreV1Api().list_namespaced_pod(
-            namespace="default",
-            label_selector=f"gx4ki.job.uuid={job_uuid}",
-            field_selector="status.phase=Running"
-        )
-        # print(pod_list)
-        for pod in pod_list.items:
-            print("pod:")
-            print(f"  name: {pod.metadata.name}")
-            print(f"  status.phase: {pod.status.phase}")
-            if pod.status.container_statuses is not None:
-                # print(
-                #     f"    status.container_statuses: {pod.status.container_statuses}")
-                if pod.status.container_statuses[0].state.terminated is not None:
-                    print(
-                        f"    status.container_statuses[0].state.terminated.reason: \
-                            {pod.status.container_statuses[0].state.terminated.reason}")
-                    print(
-                        f"    status.container_statuses[0].state.terminated.exit_code: \
-                            {pod.status.container_statuses[0].state.terminated.exit_code}")
-                    if pod.status.container_statuses[0].state.terminated.exit_code == 0:
-                        job_completed = True
-                        pod_name = pod.metadata.name
+    # while not job_completed:
+    pod_list = client.CoreV1Api().list_namespaced_pod(
+        namespace="default",
+        label_selector=f"gx4ki.job.uuid={job_uuid}",
+        field_selector="status.phase=Running"
+    )
+    # print(pod_list)
+    for pod in pod_list.items:
+        print("pod:")
+        print(f"  name: {pod.metadata.name}")
+        print(f"  status.phase: {pod.status.phase}")
+        if pod.status.container_statuses is not None:
+            # print(
+            #     f"    status.container_statuses: {pod.status.container_statuses}")
+            if pod.status.container_statuses[0].state.terminated is not None:
+                print(
+                    f"    status.container_statuses[0].state.terminated.reason: \
+                        {pod.status.container_statuses[0].state.terminated.reason}")
+                print(
+                    f"    status.container_statuses[0].state.terminated.exit_code: \
+                        {pod.status.container_statuses[0].state.terminated.exit_code}")
+                if pod.status.container_statuses[0].state.terminated.exit_code == 0:
+                    job_completed = True
+                    pod_name = pod.metadata.name
     return pod_name
 
 
@@ -162,109 +159,121 @@ def delete_job(api_instance):
     return api_response
 
 
-def ls_output_dir(api_instance: client.CoreV1Api, pod_name):
+def k8s_list_result_dir(pod_name, namespace="default"):
 
-    exec_command = ["/bin/sh", "-c", "ls -al /tmp"]
-    # resp = stream(api_instance.connect_get_namespaced_pod_exe,
-    #               pod_name, 'default',
-    #               container="dummy-side-car",
-    #               command=exec_command,
-    #               stderr=True, stdin=True,
-    #               stdout=True, tty=False,
-    #               _preload_content=False)
+    # list all file relative to /output/.*
+    exec_command = ["/bin/sh", "-c", "find /output/ -type f | cut -d / -f 3-"]
 
-    resp = stream(api_instance.connect_get_namespaced_pod_exec, pod_name, 'default',
-                  container='dummy-side-car', command=exec_command, stderr=True, stdin=False, stdout=True, tty=False)
-
-    print(resp)
+    resp = stream(client.CoreV1Api().connect_get_namespaced_pod_exec, name=pod_name, namespace=namespace,
+                  container='data-side-car', command=exec_command, stderr=True, stdin=False, stdout=True, tty=False)
+    resp = [file for file in resp.split("\n") if file != ""]
     return resp
 
 
-class Dummy:
+def k8s_read_file(pod_name, file_name, namespace="default"):
+    # TODO sanatize _file_, it should not container ../
 
-    def __init__(self):
-        self.data = None
-        self.lock = Event()
-        self.buffer = None
-
-    def set_data(self, obj):
-        self.buffer = obj
-        self.lock.set()
-
-    def get_data(self):
-        self.lock.wait()
-        return self.buffer
+    exec_command = ["/bin/sh", "-c", f"cat /output/{file_name}"]
+    resp = stream(client.CoreV1Api().connect_get_namespaced_pod_exec, name=pod_name, namespace=namespace,
+                  container='data-side-car', command=exec_command, stderr=True, stdin=False, stdout=True, tty=False)
+    return resp
 
 
-data_share = Dummy()
+
+@app.on_event("startup")
+async def startup():
+    print("startup k8s client")
+    config.load_kube_config("kubeconfig/kubeconfig")
+    result = client.ApiClient().call_api(resource_path="/healthz",
+                                         method="GET",
+                                         query_params={"verbose": "true"},
+                                         response_type=str)
+    print(result)
 
 
-@app.get("/", response_class=PlainTextResponse)
-async def root(request: Request):
+@app.get("/deployJob", response_class=JSONResponse)
+async def deploy_job(request: Request):
     print("request data from provider")
     print(await request.body())
-    result = await list_pods()
+
+    # result = await list_pods()
 
     job_uuid = str(uuid.uuid4())
+    print(job_uuid)
     config.load_kube_config("kubeconfig/kubeconfig")
-    v1 = client.BatchV1Api()
     job = create_job_object(job_uuid=job_uuid)
-    create_job(v1, job)
-    pod_name = get_pod_name(job_uuid=job_uuid)
-
-    if pod_name is None:
-        print("ERROR: NO POD_NAME... CANNOT EXEC")
-    else:
-        result = ls_output_dir(client.CoreV1Api(), pod_name)
+    resp = ""
+    try:
+        resp = create_job(job)
+#    pod_name = get_pod_name(job_uuid=job_uuid)
 
     # data = await wait_for_data()
+    except ApiException as exception:
+        return JSONResponse(content=exception.body, status_code=exception.status)
+    except BaseException as exception:
+        print(exception)
+        return JSONResponse(status_code=500, content="Internal Server Error")
 
+    print(f"STATUS: {resp}")
+    return JSONResponse(status_code=200, content={"status": "job deployed", "job_uuid": job_uuid})
+
+
+def k8s_get_job_info(job_uuid):
+    pod_list = client.CoreV1Api().list_namespaced_pod(namespace="default",
+                                                      label_selector=f"gx4ki.job.uuid={job_uuid}")
+    # jobs = client.BatchV1Api().list_namespaced_job(
+    #     namespace="default", label_selector=f"gx4ki.job.uuid={uuid}")
+
+    assert len(pod_list.items) == 1
+    job_pod = pod_list.items[0]
+    pod_info = {
+        "pod_name": job_pod.metadata.name,
+        "container_states": [{"container_name": container_status.to_dict(),
+                              "container_state": container_status.state.to_dict()}
+                             for container_status in job_pod.status.container_statuses]
+    }
+
+    return pod_info
+
+
+@app.get("/job/{job_uuid}", response_class=JSONResponse)
+async def getJobInfo(job_uuid):
+    pod_info = k8s_get_job_info(job_uuid)
+    print(pod_info)
+    return pod_info
+
+
+def k8s_delete_job(name, namespace="default"):
+
+    status = client.BatchV1Api().delete_namespaced_job(name=name,
+                                                       namespace=namespace,
+                                                       orphan_dependents=True,
+                                                       body=client.V1DeleteOptions(propagation_policy="Foreground",
+                                                                                   grace_period_seconds=5))
+    return status.to_dict()
+
+
+@app.delete("/job/{job_uuid}")
+async def deleteJob(job_uuid):
+    return k8s_delete_job(job_uuid)
+
+
+@app.get("/job/{job_uuid}/data/resultDir")
+async def getJobData(job_uuid):
+    pod_info = k8s_get_job_info(job_uuid=job_uuid)
+    result = k8s_list_result_dir(pod_name=pod_info["pod_name"])
+    print(result)
     return result
-    # return StreamingResponse(wait_for_data())  # yield_data()
 
 
-async def yield_data():
-    for i in range(10):
-        sleep(1)
-        yield b"fake data\n"
+@app.get("/job/{job_uuid}/data")
+async def getJobResultFile(job_uuid, file):
+    pod_info = k8s_get_job_info(job_uuid=job_uuid)
+    result = k8s_read_file(pod_name=pod_info["pod_name"], file_name=file)
+    print(result)
+    return result
 
 
-@app.post("/k8s/jobstop", status_code=200)
-async def k8s_preStopHook(request: Request):
-    print("REQUEST FROM JOB")
-    print(await request.body())
-
-
-@app.post("/data")
-async def get_data(request: Request):
-    data = await request.body()
-    print(f"{data}")
-    print(data_share)
-    data_share.set_data(await request.body())
-    return data
-
-
-async def get_result_data():
-
-    print("wait for result")
-    print(data_share)
-    return data_share.get_data()
-
-
-async def wait_for_data():
-    HOST = "192.168.49.5"
-    PORT = 40001
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
-        s.listen()
-        conn, addr = s.accept()
-
-        with conn:
-            print(f"CONNECTED by {addr}")
-            while True:
-                data = conn.recv(1024)
-                data = data.decode('utf8')
-                print(data)
-                yield data
-                if not data:
-                    break
+@ app.get("/health")
+async def health(request: Request):
+    return {'health': 'alive'}
