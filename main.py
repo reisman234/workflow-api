@@ -1,3 +1,4 @@
+from starlette.background import BackgroundTask
 import tempfile
 import os
 from pickle import TRUE
@@ -303,7 +304,13 @@ async def doDemoProto():
     print("DELETE JOB!")
     k8s_delete_job(job_id)
 
-    return FileResponse(path=tmp_filename)
+    return FileResponse(path=tmp_filename,
+                        background=BackgroundTask(remove_tmp_file, tmp_filename))
+
+
+def remove_tmp_file(tmp_filename):
+    print("BACKGROUND_TASK DELETE FILE")
+    os.remove(tmp_filename)
 
 
 @app.post("/demo/forceQuit", status_code=200)
