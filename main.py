@@ -13,11 +13,15 @@ from kubernetes.client.exceptions import ApiException
 
 app = FastAPI()
 
+
+NAMESPACE = "gx4ki-demo"
 RESULT_DIR = "/output"
+KUBE_CONFIG_FILE = "kubeconfig/kubeconfig"
 
 
 def k8s_get_client() -> client.CoreV1Api:
     config.load_kube_config("kubeconfig/kubeconfig")
+    client.Configuration()
     return client.CoreV1Api()
 
 
@@ -89,16 +93,16 @@ def k8s_create_job_object(job_uuid, job_namespace="default") -> client.V1Job:
     return job
 
 
-def k8s_create_job(job):
+def k8s_create_job(job, namespace=NAMESPACE):
     return client.BatchV1Api().create_namespaced_job(body=job,
-                                                     namespace="default")
+                                                     namespace=namespace)
 
 
-def get_pod_name(job_uuid):
+def get_pod_name(job_uuid, namespace=NAMESPACE):
     job_completed = False
     # while not job_completed:
     pod_list = client.CoreV1Api().list_namespaced_pod(
-        namespace="default",
+        namespace=namespace,
         label_selector=f"gx4ki.job.uuid={job_uuid}",
         field_selector="status.phase=Running"
     )
@@ -123,14 +127,14 @@ def get_pod_name(job_uuid):
     return pod_name
 
 
-def get_job_status(api_instance):
+def get_job_status(api_instance, namespace=NAMESPACE):
     job_completed = False
 
     while not job_completed:
         sleep(20)
         api_response = api_instance.read_namespaced_job_status(
             name="dummy",
-            namespace="default")
+            namespace=namespace)
         if api_response.status.succeeded is not None or \
                 api_response.status.failed is not None:
             job_completed = True
@@ -139,20 +143,20 @@ def get_job_status(api_instance):
         return
 
 
-def update_job(api_instance, job):
+def update_job(api_instance, job, namespace=NAMESPACE):
     # Update container image
     job.spec.template.spec.containers[0].image = "perl"
     api_response = api_instance.patch_namespaced_job(
         name="dummy",
-        namespace="default",
+        namespace=namespace,
         body=job)
     print("Job updated. status='%s'" % str(api_response.status))
 
 
-def delete_job(api_instance):
+def delete_job(api_instance, namespace=NAMESPACE):
     api_response = api_instance.delete_namespaced_job(
         name="dummy",
-        namespace="default",
+        namespace=namespace,
         body=client.V1DeleteOptions(
             propagation_policy='Foreground',
             grace_period_seconds=5))
@@ -161,7 +165,7 @@ def delete_job(api_instance):
     return api_response
 
 
-def k8s_list_result_dir(pod_name, namespace="default"):
+def k8s_list_result_dir(pod_name, namespace=NAMESPACE):
 
     # list all file relative to /output/.*
     exec_command = ["/bin/sh", "-c", "find /output/ -type f | cut -d / -f 3-"]
@@ -172,7 +176,7 @@ def k8s_list_result_dir(pod_name, namespace="default"):
     return resp
 
 
-def k8s_read_file(pod_name, file_name, namespace="default"):
+def k8s_read_file(pod_name, file_name, namespace=NAMESPACE):
 
     if not os.path.abspath(f"{RESULT_DIR}/{file_name}").startswith(RESULT_DIR):
         return None
@@ -185,12 +189,20 @@ def k8s_read_file(pod_name, file_name, namespace="default"):
 @app.on_event("startup")
 async def startup():
     print("startup k8s client")
-    config.load_kube_config("kubeconfig/kubeconfig")
+    if os.path.isfile(KUBE_CONFIG_FILE):
+        config.load_kube_config(KUBE_CONFIG_FILE)
+    # check if serviceaccount exits
+    elif os.path.exists("/run/secrets/kubernetes.io/serviceaccount"):
+        print("startup: try loading service account")
+        config.load_incluster_config()
+    else:
+        raise Exception("FAIL: cannot connect to control plain")
+
     result = client.ApiClient().call_api(resource_path="/healthz",
                                          method="GET",
-                                         query_params={"verbose": "true"},
+                                         #  query_params={"verbose": "true"},
                                          response_type=str)
-    print(result)
+    print(f"k8s/healthz: {result}")
 
 
 @app.get("/job/deploy")
@@ -212,8 +224,8 @@ async def deploy_job(request: Request):
     return JSONResponse(status_code=200, content={"status": "job deployed", "job_uuid": job_uuid})
 
 
-def k8s_get_job_info(job_uuid):
-    pod_list = client.CoreV1Api().list_namespaced_pod(namespace="default",
+def k8s_get_job_info(job_uuid, namespace=NAMESPACE):
+    pod_list = client.CoreV1Api().list_namespaced_pod(namespace=namespace,
                                                       label_selector=f"gx4ki.job.uuid={job_uuid}")
     assert len(pod_list.items) == 1
     job_pod = pod_list.items[0]
@@ -233,7 +245,7 @@ async def getJobInfo(job_uuid):
     return pod_info
 
 
-def k8s_delete_job(name, namespace="default"):
+def k8s_delete_job(name, namespace=NAMESPACE):
 
     status = client.BatchV1Api().delete_namespaced_job(name=name,
                                                        namespace=namespace,

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: imla-k8s-api
+  namespace: gx4ki-demo
+spec:
+  serviceAccountName: gx4ki-demo-sa
+
+  containers:
+  - name: imla-k8s-api
+    image: gx4ki-imla-k8s-api:latest
+    imagePullPolicy: Never
+    # command: [
+    #   "/bin/bash",
+    #   "-c",
+    #   "sleep 1h"
+    # ]
+    tty: true

@@ -33,6 +33,15 @@ curl -XGET 192.168.49.5:8888/job/$JOB_ID/result?file=<FILENAME>
 ```
 
 
+---
+## DEMO
+
+                                              |--------------|
+                                              |   k8s        |
+--------------       -------------------      -------------  |
+|  consumer  |  <->  |  imla-provider  |  <-> |  k8s-api  |  |
+--------------       -------------------      ---------------|
+
 Running a static prototype demo in the api.
 This call creates and deploys a job on k8s, and blocks until the worker container finishes.
 After that it reads a spesific result file from that job via a side-car container.
@@ -40,3 +49,12 @@ After that it reads a spesific result file from that job via a side-car containe
 ```shell
 curl -XGET 192.168.49.5:8888/demo > resultfile
 ```
+
+### Create ServiceAccount
+
+**TODO**
+
+- **DONE** create ServiceAccount which deploys jobs into specifc namespace
+- adapt job to carla
+- deploy k8s-api in gx4ki-cluster
+- test
