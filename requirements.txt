@@ -2,3 +2,5 @@ kubernetes
 uvicorn
 fastapi
 websockets
+python-multipart
+json-dotenv

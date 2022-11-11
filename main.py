@@ -3,8 +3,9 @@ import tempfile
 import os
 from pickle import TRUE
 import uuid
+import dotenv
 from time import sleep
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, File, UploadFile
 from fastapi.responses import JSONResponse, FileResponse
 from kubernetes import client, config
 from kubernetes.stream import stream
@@ -39,17 +40,17 @@ async def list_pods():
     return result
 
 
-def k8s_create_job_object(job_uuid, job_namespace="default") -> client.V1Job:
+def k8s_create_job_object(job_uuid, config_map_ref="", job_namespace="default") -> client.V1Job:
     container = client.V1Container(
         name="dummy-job",
         image="ralphhso/dummy-job:latest",
         image_pull_policy="IfNotPresent",
         args=["entrypoint.sh"],
         command=["/bin/bash"],
-        env=[
-            client.V1EnvVar(name="SOURCE", value="/root/.bashrc"),
-            client.V1EnvVar(name="DESTINATION", value="/output/.bashrc.backup")
-        ],
+        # env=[
+        #     client.V1EnvVar(name="SOURCE", value="/root/.bashrc"),
+        #     client.V1EnvVar(name="DESTINATION", value="/output/.bashrc.backup")
+        # ],
         volume_mounts=[
             client.V1VolumeMount(
                 mount_path="/output",
@@ -57,6 +58,12 @@ def k8s_create_job_object(job_uuid, job_namespace="default") -> client.V1Job:
             )
         ]
     )
+
+    if config_map_ref:
+        env_from = [client.V1EnvFromSource(config_map_ref=client.V1ConfigMapEnvSource(name=ref))
+                    for ref in config_map_ref.split(",") if ref]
+        container.env_from = env_from
+
     side_car = client.V1Container(
         name="data-side-car",
         image="alpine",
@@ -205,12 +212,12 @@ async def startup():
     print(f"k8s/healthz: {result}")
 
 
-@app.get("/job/deploy")
-async def deploy_job(request: Request):
+@app.post("/job/deploy/")
+async def deploy_job(config_map_ref: str = ""):
     job_uuid = str(uuid.uuid4())
-    print(job_uuid)
-    job = k8s_create_job_object(job_uuid=job_uuid)
-    resp = ""
+
+    job = k8s_create_job_object(job_uuid=job_uuid,
+                                config_map_ref=config_map_ref)
     try:
         resp = k8s_create_job(job)
 
@@ -220,7 +227,7 @@ async def deploy_job(request: Request):
         print(exception)
         return JSONResponse(status_code=500, content="Internal Server Error")
 
-    print(f"STATUS: {resp}")
+    # print(f"STATUS: {resp}")
     return JSONResponse(status_code=200, content={"status": "job deployed", "job_uuid": job_uuid})
 
 
@@ -255,6 +262,16 @@ def k8s_delete_job(name, namespace=NAMESPACE):
     return status.to_dict()
 
 
+def k8s_create_config_map(name, data, namespace=NAMESPACE):
+    config_map = client.V1ConfigMap(data=data,
+                                    metadata=client.V1ObjectMeta(
+                                        name=name,
+                                        namespace=namespace
+                                    ))
+    client.CoreV1Api().create_namespaced_config_map(body=config_map,
+                                                    namespace=namespace)
+
+
 @app.delete("/job/{job_uuid}")
 async def deleteJob(job_uuid):
     return k8s_delete_job(job_uuid)
@@ -275,6 +292,30 @@ async def getJobResultFile(job_uuid, file):
     if result is None:
         return JSONResponse(content="illegal request", status_code=400)
     return result
+
+
+@app.post("/resource/env/")
+async def postEnvFile(file: UploadFile):
+
+    # do we need to store that file?
+    try:
+        contents = file.file.read()
+        with open(file.filename, 'wb') as f:
+            f.write(contents)
+    except Exception:
+        return {"message": "There was an error uploading the file"}
+    finally:
+        file.file.close()
+
+    data = dict(dotenv.dotenv_values(file.filename))
+    os.remove(file.filename)
+
+    config_map_id = str(uuid.uuid4())
+    print(data)
+    k8s_create_config_map(name=config_map_id,
+                          data=data)
+
+    return {"filename": file.filename, "resource_id": config_map_id}
 
 
 @app.get("/demo")

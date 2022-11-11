@@ -52,9 +52,31 @@ curl -XGET 192.168.49.5:8888/demo > resultfile
 
 ### Create ServiceAccount
 
+To be authorized against the control plane of the k8s api a serviceaccount is created and used.
+This serviceaccount is bound to its `clusterrolebindung` to a `clusterrole` with the allowed rules/permissions.
+
+- a cluster wide RBAC is used becaus at api start the `/healthz` of k8s is requested
+  - this should be replaced
+
+https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
+https://betterprogramming.pub/k8s-tips-using-a-serviceaccount-801c433d0023
+https://stackoverflow.com/questions/71265398/kuberentes-rbac-rule-to-allow-creating-jobs-only-from-a-cronjob
+
+### Create ConfigMaps in K8s
+
+Applications in Pods are requred to be configurable by environment variables.
+Environment and other configuraion files can be stored in k8s by ConfigMaps and/or Secrets.
+
+**Open Questions**
+
+
+
+---
 **TODO**
 
-- **DONE** create ServiceAccount which deploys jobs into specifc namespace
+- **DONE** create ServiceAccount which deploys jobs into a specifc namespace
+- **DONE** create ConfigMaps from env-file and use it in jobs
 - adapt job to carla
 - deploy k8s-api in gx4ki-cluster
 - test
