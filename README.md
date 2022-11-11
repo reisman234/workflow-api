@@ -77,6 +77,7 @@ Environment and other configuraion files can be stored in k8s by ConfigMaps and/
 
 - **DONE** create ServiceAccount which deploys jobs into a specifc namespace
 - **DONE** create ConfigMaps from env-file and use it in jobs
+- how to get dotenv-file from outside to imla-api? [comunication-overview](./docs/edc-dotenv-transfer.excalidraw)
 - adapt job to carla
 - deploy k8s-api in gx4ki-cluster
 - test
