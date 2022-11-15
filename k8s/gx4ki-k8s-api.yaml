@@ -4,12 +4,12 @@ metadata:
   name: imla-k8s-api
   namespace: gx4ki-demo
 spec:
-  serviceAccountName: gx4ki-demo-sa
+  serviceAccountName: gx4ki-sa
 
   containers:
   - name: imla-k8s-api
-    image: gx4ki-imla-k8s-api:latest
-    imagePullPolicy: Never
+    image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-api:latest
+    imagePullPolicy: Always
     # command: [
     #   "/bin/bash",
     #   "-c",
