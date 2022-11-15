@@ -1,12 +1,14 @@
-from starlette.background import BackgroundTask
+
 import tempfile
 import os
-from pickle import TRUE
 import uuid
 import dotenv
 from time import sleep
-from fastapi import FastAPI, Request, File, UploadFile
+from fastapi import FastAPI, UploadFile
 from fastapi.responses import JSONResponse, FileResponse
+
+from starlette.background import BackgroundTask
+
 from kubernetes import client, config
 from kubernetes.stream import stream
 from kubernetes.client.exceptions import ApiException
@@ -40,7 +42,7 @@ async def list_pods():
     return result
 
 
-def k8s_create_job_object(job_uuid, config_map_ref="", job_namespace="default") -> client.V1Job:
+def k8s_create_job_object(job_uuid, config_map_ref="", job_namespace=NAMESPACE) -> client.V1Job:
     container = client.V1Container(
         name="dummy-job",
         image="ralphhso/dummy-job:latest",
@@ -262,7 +264,10 @@ def k8s_delete_job(name, namespace=NAMESPACE):
     return status.to_dict()
 
 
-def k8s_create_config_map(name, data, namespace=NAMESPACE):
+def k8s_create_config_map(data, namespace=NAMESPACE):
+
+    name = str(uuid.uuid4())
+
     config_map = client.V1ConfigMap(data=data,
                                     metadata=client.V1ObjectMeta(
                                         name=name,
@@ -270,6 +275,16 @@ def k8s_create_config_map(name, data, namespace=NAMESPACE):
                                     ))
     client.CoreV1Api().create_namespaced_config_map(body=config_map,
                                                     namespace=namespace)
+    return name
+
+
+def k8s_delete_config_map(name, namespace=NAMESPACE):
+
+    try:
+        client.CoreV1Api().delete_namespaced_config_map(name=name,
+                                                        namespace=namespace)
+    except ApiException as exc:
+        print(exc)
 
 
 @app.delete("/job/{job_uuid}")
@@ -294,41 +309,54 @@ async def getJobResultFile(job_uuid, file):
     return result
 
 
-@app.post("/resource/env/")
-async def postEnvFile(file: UploadFile):
-
+def helper_get_env_data(env_file: UploadFile):
     # do we need to store that file?
     try:
-        contents = file.file.read()
-        with open(file.filename, 'wb') as f:
+        contents = env_file.file.read()
+        with open(env_file.filename, 'wb') as f:
             f.write(contents)
     except Exception:
         return {"message": "There was an error uploading the file"}
     finally:
-        file.file.close()
+        env_file.file.close()
 
-    data = dict(dotenv.dotenv_values(file.filename))
-    os.remove(file.filename)
+    data = dict(dotenv.dotenv_values(env_file.filename))
+    os.remove(env_file.filename)
+    return data
 
-    config_map_id = str(uuid.uuid4())
-    print(data)
-    k8s_create_config_map(name=config_map_id,
-                          data=data)
 
-    return {"filename": file.filename, "resource_id": config_map_id}
+@app.post("/resource/env/")
+async def postEnvFile(env_file: UploadFile):
+
+    data = helper_get_env_data(env_file)
+    config_map_id = k8s_create_config_map(data=data)
+
+    return {"filename": env_file.filename, "resource_id": config_map_id}
+
+
+@app.delete("/resource/env/{res_id}")
+async def deleteEnvFile(res_id):
+    k8s_delete_config_map(name=res_id)
+    return {}
 
 
 @app.get("/demo")
-async def doDemoProto():
+async def doDemoProto(env_file: UploadFile):
     job_id = str(uuid.uuid4())
     app.FORCE_QUIT = False
     job_completed = False
 
+    print("CREATE CONFIG_MAP FROM ENV_FILE")
+    data = helper_get_env_data(env_file)
+    config_map_id = k8s_create_config_map(data)
+    print(f"CONFIG_MAP CREATED ID={config_map_id}")
+
     print(f"CREATE JOB MANIFEST AND DEPLOY: job_id={job_id}")
-    job_manifest = k8s_create_job_object(job_uuid=job_id)
+    job_manifest = k8s_create_job_object(
+        job_uuid=job_id, config_map_ref=config_map_id)
     k8s_create_job(job_manifest)
 
-    print("JOB DEPLOAY...WAIT FOR FINISH")
+    print("JOB DEPlOYED...WAIT FOR FINISH")
     sleep(5)
     job_info = k8s_get_job_info(job_id)
     while not app.FORCE_QUIT and not job_completed:
