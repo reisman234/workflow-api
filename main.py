@@ -16,10 +16,11 @@ from kubernetes.client.exceptions import ApiException
 
 app = FastAPI()
 
-
+WORKER_IMAGE = "harbor.gx4ki.imla.hs-offenburg.de/ralphhso/dummy-job:py3.8-alpine"
 NAMESPACE = "gx4ki-demo"
 RESULT_DIR = "/output"
 KUBE_CONFIG_FILE = "kubeconfig/kubeconfig"
+IMAGE_PULL_SECRET = "imla-registry"
 
 
 def k8s_get_client() -> client.CoreV1Api:
@@ -42,11 +43,11 @@ async def list_pods():
     return result
 
 
-def k8s_create_job_object(job_uuid, config_map_ref="", job_namespace=NAMESPACE) -> client.V1Job:
+def k8s_create_job_object(job_uuid, worker_image, config_map_ref="", job_namespace=NAMESPACE) -> client.V1Job:
     container = client.V1Container(
         name="dummy-job",
-        image="ralphhso/dummy-job:latest",
-        image_pull_policy="IfNotPresent",
+        image=worker_image,
+        image_pull_policy="Always",
         args=["entrypoint.sh"],
         command=["/bin/bash"],
         # env=[
@@ -84,6 +85,8 @@ def k8s_create_job_object(job_uuid, config_map_ref="", job_namespace=NAMESPACE) 
                     "gx4ki.job.uuid": job_uuid}),
         spec=client.V1PodSpec(restart_policy="Never",
                               containers=[container, side_car],
+                              image_pull_secrets=[
+                                  client.V1LocalObjectReference(name=IMAGE_PULL_SECRET)],
                               volumes=[client.V1Volume(
                                   name="output-mount",
                                   empty_dir=client.V1EmptyDirVolumeSource(size_limit="512M"))])
@@ -215,10 +218,11 @@ async def startup():
 
 
 @app.post("/job/deploy/")
-async def deploy_job(config_map_ref: str = ""):
+async def deploy_job(job_conf = UploadFile,config_map_ref: str = ""):
     job_uuid = str(uuid.uuid4())
 
     job = k8s_create_job_object(job_uuid=job_uuid,
+                                worker_image=WORKER_IMAGE,
                                 config_map_ref=config_map_ref)
     try:
         resp = k8s_create_job(job)
@@ -271,7 +275,8 @@ def k8s_create_config_map(data, namespace=NAMESPACE):
     config_map = client.V1ConfigMap(data=data,
                                     metadata=client.V1ObjectMeta(
                                         name=name,
-                                        namespace=namespace
+                                        namespace=namespace,
+                                        labels={"app": "gx4ki-demo"}
                                     ))
     client.CoreV1Api().create_namespaced_config_map(body=config_map,
                                                     namespace=namespace)
@@ -349,11 +354,13 @@ async def doDemoProto(env_file: UploadFile):
     print("CREATE CONFIG_MAP FROM ENV_FILE")
     data = helper_get_env_data(env_file)
     config_map_id = k8s_create_config_map(data)
-    print(f"CONFIG_MAP CREATED ID={config_map_id}")
+    print(f"CONFIG_MAP CREATED config_map_id={config_map_id}")
 
     print(f"CREATE JOB MANIFEST AND DEPLOY: job_id={job_id}")
     job_manifest = k8s_create_job_object(
-        job_uuid=job_id, config_map_ref=config_map_id)
+        job_uuid=job_id,
+        worker_image=WORKER_IMAGE,
+        config_map_ref=config_map_id)
     k8s_create_job(job_manifest)
 
     print("JOB DEPlOYED...WAIT FOR FINISH")
@@ -372,8 +379,8 @@ async def doDemoProto(env_file: UploadFile):
     data = k8s_list_result_dir(pod_name=pod_info["pod_name"])
     print(data)
 
-    data = k8s_read_file(
-        pod_name=pod_info["pod_name"], file_name=".bashrc.backup")
+    data = k8s_read_file(pod_name=pod_info["pod_name"],
+                         file_name="result")
 
     print("WRITE DATA TO TMP")
     (tmp_fd, tmp_filename) = tempfile.mkstemp(prefix=f"{job_id}_")

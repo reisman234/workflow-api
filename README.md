@@ -55,6 +55,7 @@ curl -XGET 192.168.49.5:8888/demo > resultfile
 To be authorized against the control plane of the k8s api a serviceaccount is created and used.
 This serviceaccount is bound to its `clusterrolebindung` to a `clusterrole` with the allowed rules/permissions.
 
+- a `serviceAccount` is only from within the cluster usable.
 - a cluster wide RBAC is used becaus at api start the `/healthz` of k8s is requested
   - this should be replaced
 
