@@ -72,7 +72,15 @@ Environment and other configuraion files can be stored in k8s by ConfigMaps and/
 **Open Questions**
 
 
+### Read Result Data from Pods
 
+Read/Load Files from a Container is very complicated to achieve.
+
+what have I tried so far:
+- use kubernetes-python client and stream the data via stdout out of the container by executing `cat resultfile`
+  - rosbag file (binary file) is somehow changed by transfer
+- create kubernetes-python client equivalent to `kubectl cp` (-> internally it's a kube exec with tar cf | tar xf )
+- 
 ---
 **TODO**
 

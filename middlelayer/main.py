@@ -4,14 +4,29 @@ import os
 import uuid
 import dotenv
 from time import sleep
-from fastapi import FastAPI, UploadFile
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi import FastAPI, Form, UploadFile
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 
 from starlette.background import BackgroundTask
 
 from kubernetes import client, config
 from kubernetes.stream import stream
 from kubernetes.client.exceptions import ApiException
+
+from .imla_minio import ImlaMinio
+
+
+# logging
+# stdout and/or logfile
+
+
+class JobConfig():
+    def __init__(self, config_data: dict):
+        self.worker_image = config_data['WORKER_IMAGE']
+        self.gpu = False
+        self.result_directory = config_data.get("RESULT_DIRECTORY", "/output")
+        if config_data.get("GPU", "false").lower() == 'true':
+            self.gpu = True
 
 
 app = FastAPI()
@@ -21,6 +36,8 @@ NAMESPACE = "gx4ki-demo"
 RESULT_DIR = "/output"
 KUBE_CONFIG_FILE = "kubeconfig/kubeconfig"
 IMAGE_PULL_SECRET = "imla-registry"
+
+RESULT_BUCKET = "gx4ki-demo"
 
 
 def k8s_get_client() -> client.CoreV1Api:
@@ -43,24 +60,30 @@ async def list_pods():
     return result
 
 
-def k8s_create_job_object(job_uuid, worker_image, config_map_ref="", job_namespace=NAMESPACE) -> client.V1Job:
+def k8s_create_job_object(job_uuid, job_config: JobConfig, config_map_ref="", job_namespace=NAMESPACE) -> client.V1Job:
+
     container = client.V1Container(
         name="dummy-job",
-        image=worker_image,
+        image=job_config.worker_image,
         image_pull_policy="Always",
         args=["entrypoint.sh"],
         command=["/bin/bash"],
+        # tty=True,
         # env=[
         #     client.V1EnvVar(name="SOURCE", value="/root/.bashrc"),
         #     client.V1EnvVar(name="DESTINATION", value="/output/.bashrc.backup")
         # ],
         volume_mounts=[
             client.V1VolumeMount(
-                mount_path="/output",
+                mount_path=job_config.result_directory,
                 name="output-mount"
             )
         ]
     )
+
+    if job_config.gpu:
+        container.resources = client.V1ResourceRequirements(
+            limits={"nvidia.com/gpu": "1"})
 
     if config_map_ref:
         env_from = [client.V1EnvFromSource(config_map_ref=client.V1ConfigMapEnvSource(name=ref))
@@ -72,6 +95,10 @@ def k8s_create_job_object(job_uuid, worker_image, config_map_ref="", job_namespa
         image="alpine",
         command=["/bin/sh", "-c",
                  "while true; do sleep 10; done"],
+        env_from=[
+            client.V1EnvFromSource(
+                secret_ref=client.V1SecretEnvSource(name="minio-secret"))
+        ],
         volume_mounts=[
             client.V1VolumeMount(
                 mount_path="/output",
@@ -89,7 +116,7 @@ def k8s_create_job_object(job_uuid, worker_image, config_map_ref="", job_namespa
                                   client.V1LocalObjectReference(name=IMAGE_PULL_SECRET)],
                               volumes=[client.V1Volume(
                                   name="output-mount",
-                                  empty_dir=client.V1EmptyDirVolumeSource(size_limit="512M"))])
+                                  empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi"))])
     )
     spec = client.V1JobSpec(
         template=template,
@@ -103,6 +130,75 @@ def k8s_create_job_object(job_uuid, worker_image, config_map_ref="", job_namespa
         spec=spec,
     )
     return job
+
+
+def k8s_create_pod_manifest(job_uuid, job_config: JobConfig, config_map_ref="", job_namespace=NAMESPACE):
+    container = client.V1Container(
+        name="dummy-job",
+        image=job_config.worker_image,
+        image_pull_policy="Always",
+        args=["entrypoint.sh"],
+        command=["/bin/bash"],
+        # tty=True,
+        # env=[
+        #     client.V1EnvVar(name="SOURCE", value="/root/.bashrc"),
+        #     client.V1EnvVar(name="DESTINATION", value="/output/.bashrc.backup")
+        # ],
+        volume_mounts=[
+            client.V1VolumeMount(
+                mount_path=job_config.result_directory,
+                name="output-mount"
+            )
+        ]
+    )
+
+    if job_config.gpu:
+        container.resources = client.V1ResourceRequirements(
+            limits={"nvidia.com/gpu": "1"})
+
+    if config_map_ref:
+        env_from = [client.V1EnvFromSource(config_map_ref=client.V1ConfigMapEnvSource(name=ref))
+                    for ref in config_map_ref.split(",") if ref]
+        container.env_from = env_from
+
+    side_car = client.V1Container(
+        name="data-side-car",
+        image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-data-side-car:latest",
+        command=["/bin/sh"],
+        tty=True,
+        env_from=[
+            client.V1EnvFromSource(
+                secret_ref=client.V1SecretEnvSource(name="minio-secret"))
+        ],
+        volume_mounts=[
+            client.V1VolumeMount(
+                mount_path="/output",
+                name="output-mount"
+            )
+        ]
+    )
+
+    pod_spec = client.V1PodSpec(restart_policy="Never",
+                                containers=[container, side_car],
+                                image_pull_secrets=[
+                                    client.V1LocalObjectReference(name=IMAGE_PULL_SECRET)],
+                                volumes=[client.V1Volume(
+                                    name="output-mount",
+                                    empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi"))])
+
+    pod = client.V1Pod(
+        api_version="v1",
+        kind="Pod",
+        metadata=client.V1ObjectMeta(name=job_uuid,
+                                     labels={"gx4ki.app": "gx4ki-demo",
+                                             "gx4ki.job.uuid": job_uuid}),
+        spec=pod_spec)
+    return pod
+
+
+def k8s_create_pod(manifest, namespace=NAMESPACE):
+    return client.CoreV1Api().create_namespaced_pod(namespace=namespace,
+                                                    body=manifest)
 
 
 def k8s_create_job(job, namespace=NAMESPACE):
@@ -215,17 +311,22 @@ async def startup():
                                          #  query_params={"verbose": "true"},
                                          response_type=str)
     print(f"k8s/healthz: {result}")
+    app.s3 = ImlaMinio(result_bucket=RESULT_BUCKET)
+    print(app.s3.get_bucket_names())
 
 
 @app.post("/job/deploy/")
-async def deploy_job(job_conf = UploadFile,config_map_ref: str = ""):
+async def deploy_job(config_data: UploadFile, config_map_ref: str = ""):
     job_uuid = str(uuid.uuid4())
 
-    job = k8s_create_job_object(job_uuid=job_uuid,
-                                worker_image=WORKER_IMAGE,
-                                config_map_ref=config_map_ref)
+    data = helper_get_env_data(config_data)
+    job_conf = JobConfig(config_data=data)
+    print(config_map_ref)
+    job = k8s_create_pod_manifest(job_uuid=job_uuid,
+                                  job_config=job_conf,
+                                  config_map_ref=config_map_ref)
     try:
-        resp = k8s_create_job(job)
+        resp = k8s_create_pod(job)
 
     except ApiException as exception:
         return JSONResponse(content=exception.body, status_code=exception.status)
@@ -242,11 +343,13 @@ def k8s_get_job_info(job_uuid, namespace=NAMESPACE):
                                                       label_selector=f"gx4ki.job.uuid={job_uuid}")
     assert len(pod_list.items) == 1
     job_pod = pod_list.items[0]
-    pod_info = {
-        "pod_name": job_pod.metadata.name,
-        "container_states": {container_status.name: container_status.state.to_dict()
-                             for container_status in job_pod.status.container_statuses}
-    }
+    pod_info = {"pod_name": job_pod.metadata.name}
+
+    pod_info["pod.status.phase"] = job_pod.status.phase
+
+    if job_pod.status.phase != "Pending":
+        pod_info["container_states"] = {container_status.name: container_status.state.to_dict()
+                                        for container_status in job_pod.status.container_statuses}
 
     return pod_info
 
@@ -292,6 +395,49 @@ def k8s_delete_config_map(name, namespace=NAMESPACE):
         print(exc)
 
 
+def k8s_store_result(pod_name, namespace=NAMESPACE):
+
+    print(f"REMOTE CONSOLE: job_id={pod_name}")
+    resp = stream(client.CoreV1Api().connect_get_namespaced_pod_exec,
+                  name=pod_name, namespace=namespace,
+                  container='data-side-car',
+                  command="/bin/sh",
+                  stderr=True,
+                  stdin=True,
+                  stdout=True,
+                  tty=False,
+                  _preload_content=False)
+
+    exec_command = f"MINIO_CP_OPTIONS=--recursive DESTINATION_BUCKET={namespace} DESTINATION_FOLDER={pod_name} sh save_result.sh && echo DONE || echo FAIL >&2 "
+    print(f"EXEC COMMAND: {exec_command}")
+    resp.write_stdin(exec_command + "\n")
+    successes = True
+    while resp.is_open():
+        sleep(1)
+        resp.update(timeout=1)
+        if resp.peek_stdout():
+            data = resp.readline_stdout()
+            print(data)
+            if data == "DONE":
+                break
+        if resp.peek_stderr():
+            data = resp.readline_stderr()
+            print(data)
+            if data == "FAIL":
+                successes = False
+                break
+    resp.close()
+
+    return successes
+
+
+@app.post("/job/{job_uuid}/result/store/")
+async def storeJobResult(job_uuid):
+    print("STORE RESULT")
+    k8s_store_result(pod_name=job_uuid)
+    return {}
+
+
 @app.delete("/job/{job_uuid}")
 async def deleteJob(job_uuid):
     return k8s_delete_job(job_uuid)
@@ -305,7 +451,30 @@ async def getJobData(job_uuid):
     return result
 
 
-@app.get("/job/{job_uuid}/result")
+@app.get("/job/{job_uuid}/resultnew/list/")
+async def getJobData(job_uuid):
+    result = app.s3.list_job_result(job_id=job_uuid)
+    print(result)
+    return result
+
+
+def closeResponse(response):
+    response.release_conn()
+    response.close()
+
+
+@app.get("/job/{job_uuid}/resultnew/")
+async def getJobData(job_uuid, result_file):
+    response = app.s3.get_object(job_id=job_uuid, object_name=result_file)
+    headers = dict(response.getheaders())
+    headers.pop("Server", None)
+    print(headers)
+    return StreamingResponse(response.stream(),
+                             headers=headers,
+                             background=BackgroundTask(closeResponse, response))
+
+
+@ app.get("/job/{job_uuid}/result")
 async def getJobResultFile(job_uuid, file):
     pod_info = k8s_get_job_info(job_uuid=job_uuid)
     result = k8s_read_file(pod_name=pod_info["pod_name"], file_name=file)
@@ -330,7 +499,7 @@ def helper_get_env_data(env_file: UploadFile):
     return data
 
 
-@app.post("/resource/env/")
+@ app.post("/resource/env/")
 async def postEnvFile(env_file: UploadFile):
 
     data = helper_get_env_data(env_file)
@@ -339,17 +508,22 @@ async def postEnvFile(env_file: UploadFile):
     return {"filename": env_file.filename, "resource_id": config_map_id}
 
 
-@app.delete("/resource/env/{res_id}")
+@ app.delete("/resource/env/{res_id}")
 async def deleteEnvFile(res_id):
     k8s_delete_config_map(name=res_id)
     return {}
 
 
-@app.get("/demo")
-async def doDemoProto(env_file: UploadFile):
+@ app.get("/demo")
+async def doDemoProto(config_data: UploadFile, env_file: UploadFile):
     job_id = str(uuid.uuid4())
     app.FORCE_QUIT = False
     job_completed = False
+
+    print("PROCESS JOB_CONFIG")
+    data = helper_get_env_data(config_data)
+    job_conf = JobConfig(config_data=data)
+    print(job_conf.__dict__)
 
     print("CREATE CONFIG_MAP FROM ENV_FILE")
     data = helper_get_env_data(env_file)
@@ -357,43 +531,52 @@ async def doDemoProto(env_file: UploadFile):
     print(f"CONFIG_MAP CREATED config_map_id={config_map_id}")
 
     print(f"CREATE JOB MANIFEST AND DEPLOY: job_id={job_id}")
-    job_manifest = k8s_create_job_object(
+    job_manifest = k8s_create_pod_manifest(
         job_uuid=job_id,
-        worker_image=WORKER_IMAGE,
+        job_config=job_conf,
         config_map_ref=config_map_id)
-    k8s_create_job(job_manifest)
-
+    k8s_create_pod(job_manifest)
     print("JOB DEPlOYED...WAIT FOR FINISH")
     sleep(5)
+
     job_info = k8s_get_job_info(job_id)
     while not app.FORCE_QUIT and not job_completed:
         job_info = k8s_get_job_info(job_id)
-        if job_info["container_states"]["dummy-job"]['terminated'] is None:
+
+        if job_info["pod.status.phase"] == "Pending":
+            print("JOB STATE: PENDING...")
+            sleep(10)
+
+        elif job_info["container_states"]["dummy-job"]['terminated'] is None:
             print("JOB RUNNING...")
             sleep(10)
         else:
+            print("JOB COMPLETED")
             job_completed = True
+
+    # worker image finished,
+    # trigger data-side-car to saves result to s3
+    retval = k8s_store_result(pod_name=job_id)
+
+    job_results = app.s3.list_job_result(job_id=job_id)
 
     pod_info = k8s_get_job_info(job_uuid=job_id)
     print("SHOW RESULT FILES")
-    data = k8s_list_result_dir(pod_name=pod_info["pod_name"])
-    print(data)
+    # data = k8s_list_result_dir(pod_name=pod_info["pod_name"])
+    print(job_results)
+    if len(job_results) == 0:
+        return JSONResponse(content={"message": "no result file"}, status_code=400)
 
-    data = k8s_read_file(pod_name=pod_info["pod_name"],
-                         file_name="result")
+    result_file = job_results[0]
+    print(f"GET END RETURN RESULT_FILE:{result_file}")
 
-    print("WRITE DATA TO TMP")
-    (tmp_fd, tmp_filename) = tempfile.mkstemp(prefix=f"{job_id}_")
-    tmp_file = os.fdopen(tmp_fd, "w+")
-    tmp_file.write(data)
-    tmp_file.flush()
-    tmp_file.close()
-
-    print("DELETE JOB!")
-    k8s_delete_job(job_id)
-
-    return FileResponse(path=tmp_filename,
-                        background=BackgroundTask(remove_tmp_file, tmp_filename))
+    response = app.s3.get_object(job_id=job_id, object_name=result_file)
+    headers = dict(response.getheaders())
+    headers.pop("Server", None)
+    print(headers)
+    return StreamingResponse(response.stream(),
+                             headers=headers,
+                             background=BackgroundTask(closeResponse, response))
 
 
 def remove_tmp_file(tmp_filename):
@@ -401,11 +584,11 @@ def remove_tmp_file(tmp_filename):
     os.remove(tmp_filename)
 
 
-@app.post("/demo/forceQuit", status_code=200)
+@ app.post("/demo/forceQuit", status_code=200)
 async def doDemoForceQuit():
     app.FORCE_QUIT = True
 
 
-@app.get("/health")
+@ app.get("/health")
 async def health():
     return {'health': 'alive'}

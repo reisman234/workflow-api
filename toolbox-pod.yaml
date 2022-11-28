@@ -3,14 +3,19 @@ kind: Pod
 metadata:
   name: toolbox
   namespace: gx4ki-demo
+  labels:
+    app: toolbox
 spec:
   serviceAccountName: gx4ki-sa
-
   containers:
-  - name: toolbox
-    image: ralphhso/toolbox:latest
-    #imagePullPolicy: Never
-    tty: true
-    # envFrom:
-    #   - configMapRef:
-    #       name: c0037fd2-3947-42a0-b564-cf9c266f5d41
+    - name: toolbox
+      image: ralphhso/toolbox:latest
+      #imagePullPolicy: Never
+      resources:
+        limits:
+          memory: 1Gi
+          cpu: 1
+      tty: true
+      # envFrom:
+      #   - configMapRef:
+      #       name: c0037fd2-3947-42a0-b564-cf9c266f5d41
