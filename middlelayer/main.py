@@ -4,6 +4,7 @@ import os
 import uuid
 import dotenv
 from time import sleep
+from configparser import ConfigParser
 from fastapi import FastAPI, Form, UploadFile
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 
@@ -34,7 +35,7 @@ app = FastAPI()
 WORKER_IMAGE = "harbor.gx4ki.imla.hs-offenburg.de/ralphhso/dummy-job:py3.8-alpine"
 NAMESPACE = "gx4ki-demo"
 RESULT_DIR = "/output"
-KUBE_CONFIG_FILE = "kubeconfig/kubeconfig"
+KUBE_CONFIG_FILE = "config/kubeconfig"
 IMAGE_PULL_SECRET = "imla-registry"
 
 RESULT_BUCKET = "gx4ki-demo"
@@ -296,6 +297,11 @@ def k8s_read_file(pod_name, file_name, namespace=NAMESPACE):
 
 @app.on_event("startup")
 async def startup():
+
+    ConfigParser
+    main_cfg = ConfigParser()
+    main_cfg.read("config/middlelayer.conf")
+
     print("startup k8s client")
     if os.path.isfile(KUBE_CONFIG_FILE):
         config.load_kube_config(KUBE_CONFIG_FILE)
@@ -311,7 +317,8 @@ async def startup():
                                          #  query_params={"verbose": "true"},
                                          response_type=str)
     print(f"k8s/healthz: {result}")
-    app.s3 = ImlaMinio(result_bucket=RESULT_BUCKET)
+    app.s3 = ImlaMinio(main_cfg['minio'], result_bucket=RESULT_BUCKET)
+    # app.s3 = ImlaMinio(result_bucket=RESULT_BUCKET)
     print(app.s3.get_bucket_names())
 
 

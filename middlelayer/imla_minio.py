@@ -13,12 +13,13 @@ import sys
 
 class ImlaMinio():
 
-    def __init__(self, result_bucket):
+    def __init__(self, minio_config, result_bucket):
+
         self.client = Minio(
-            endpoint='141.79.240.3:30900',
-            access_key='8SDVZ9GM0D4XU9OBP6NU',
-            secret_key='XRoXhSaLc+KyQnPNLk+MGe6tiKqwsxyRk26HLM4t',
-            secure=False
+            endpoint=minio_config.get('endpoint'),
+            access_key=minio_config.get('access_key'),
+            secret_key=minio_config.get('secret_key'),
+            secure=minio_config.getboolean('secure')
         )
         self.result_bucket = result_bucket
         self._init_result_bucket()
