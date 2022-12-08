@@ -312,11 +312,11 @@ async def startup():
     else:
         raise Exception("FAIL: cannot connect to control plain")
 
-    result = client.ApiClient().call_api(resource_path="/healthz",
-                                         method="GET",
-                                         #  query_params={"verbose": "true"},
-                                         response_type=str)
-    print(f"k8s/healthz: {result}")
+    # result = client.ApiClient().call_api(resource_path="/healthz",
+    #                                      method="GET",
+    #                                      #  query_params={"verbose": "true"},
+    #                                      response_type=str)
+    # print(f"k8s/healthz: {result}")
     app.s3 = ImlaMinio(main_cfg['minio'], result_bucket=RESULT_BUCKET)
     # app.s3 = ImlaMinio(result_bucket=RESULT_BUCKET)
     print(app.s3.get_bucket_names())
@@ -354,7 +354,8 @@ def k8s_get_job_info(job_uuid, namespace=NAMESPACE):
 
     pod_info["pod.status.phase"] = job_pod.status.phase
 
-    if job_pod.status.phase != "Pending":
+    pod_info["container_states"] = None
+    if job_pod.status.container_statuses:
         pod_info["container_states"] = {container_status.name: container_status.state.to_dict()
                                         for container_status in job_pod.status.container_statuses}
 
@@ -553,6 +554,9 @@ async def doDemoProto(config_data: UploadFile, env_file: UploadFile):
         if job_info["pod.status.phase"] == "Pending":
             print("JOB STATE: PENDING...")
             sleep(10)
+            if job_info["container_states"]:
+                if job_info["container_states"]["dummy-job"]['waiting']['reason'] == "ErrImagePull":
+                    raise Exception("FAIL")
 
         elif job_info["container_states"]["dummy-job"]['terminated'] is None:
             print("JOB RUNNING...")
