@@ -80,13 +80,44 @@ what have I tried so far:
 - use kubernetes-python client and stream the data via stdout out of the container by executing `cat resultfile`
   - rosbag file (binary file) is somehow changed by transfer
 - create kubernetes-python client equivalent to `kubectl cp` (-> internally it's a kube exec with tar cf | tar xf )
-- 
+
+
+
+# Bulild & Run API as Container
+
+```shell
+docker build --no-cache --pull -t gx4ki/imla-k8s-client:latest .
+docker tag gx4ki/imla-k8s-client:latest harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-client:latest
+```
+
+
+```shell
+docker run -it --rm --name k8s-client \
+-v $(pwd)/config/minikube.kubeconfig:/opt/k8s-api/config/kubeconfig \
+-v $(pwd)/config/middlelayer.conf:/opt/k8s-api/config/middlelayer.conf \
+--network minikube \
+--ip 192.168.49.5 \
+gx4ki/imla-k8s-api
+```
+
+Deploy a proxy Endpoint for connector
+
+```shell
+docker run -it --rm -p 8888:8888 \
+gx4ki/imla-k8s-client:latest uvicorn middlelayer.entrypoint:app --workers=4 --host=0.0.0.0 --port=8888
+```
+
+
 ---
 **TODO**
 
 - **DONE** create ServiceAccount which deploys jobs into a specifc namespace
 - **DONE** create ConfigMaps from env-file and use it in jobs
-- how to get dotenv-file from outside to imla-api? [comunication-overview](./docs/edc-dotenv-transfer.excalidraw)
-- adapt job to carla
+- **POSTPONED**how to get dotenv-file from outside to imla-api? [comunication-overview](./docs/edc-dotenv-transfer.excalidraw)
+  - dotenv-file and job-config files read from local directory
+- **DONE** adapt job to carla
+- **FAIL** download result files directly to imla-k8s-client -- rosbag file changed during transfer()
+- **DONE** upload result files to minio
+  - **DONE** get resultfile from minio and send it as response
 - deploy k8s-api in gx4ki-cluster
-- test
+- test with connector
