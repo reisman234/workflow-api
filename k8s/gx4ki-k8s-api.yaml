@@ -1,18 +1,45 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: imla-k8s-api
+  name: imla-k8s-client
   namespace: gx4ki-demo
+  labels:
+    gx4ki.app: imla-k8s-client
 spec:
+  volumes:
+    - name: middlelayerconf
+      secret:
+        secretName: imla-k8s-client
+        optional: false
   serviceAccountName: gx4ki-sa
-
+  imagePullSecrets:
+    - name: imla-registry
   containers:
-  - name: imla-k8s-api
-    image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-api:latest
-    imagePullPolicy: Always
-    # command: [
-    #   "/bin/bash",
-    #   "-c",
-    #   "sleep 1h"
-    # ]
-    tty: true
+    - name: imla-k8s-client
+      image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-client:latest
+      imagePullPolicy: Always
+      tty: true
+      volumeMounts:
+        - mountPath: /opt/k8s-api/config/
+          name: middlelayerconf
+      resources:
+        limits:
+          cpu: "2"
+          memory: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imla-k8s-client
+  namespace: gx4ki-demo
+  labels:
+    gx4ki.app: imla-k8s-client
+spec:
+  ports:
+    - port: 8888
+      protocol: TCP
+      targetPort: 8888
+      nodePort: 30910
+  selector:
+    gx4ki.app: imla-k8s-client
+  type: NodePort

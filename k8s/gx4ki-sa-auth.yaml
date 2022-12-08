@@ -8,10 +8,11 @@ rules:
   - apiGroups:
       - ""
     resources: ["pods", "pods/exec"]
-    verbs: ["get", "exec", "list"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "create", "delete"]
+    verbs: ["get", "delete", "create", "exec", "list"]
+  - apiGroups:
+      - ""
+    resources: ["configmaps"]
+    verbs: ["create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
