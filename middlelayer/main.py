@@ -167,10 +167,6 @@ def k8s_create_pod_manifest(job_uuid, job_config: JobConfig, config_map_ref="", 
         image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-data-side-car:latest",
         command=["/bin/sh"],
         tty=True,
-        env_from=[
-            client.V1EnvFromSource(
-                secret_ref=client.V1SecretEnvSource(name="minio-secret"))
-        ],
         volume_mounts=[
             client.V1VolumeMount(
                 mount_path="/output",
@@ -298,7 +294,6 @@ def k8s_read_file(pod_name, file_name, namespace=NAMESPACE):
 @app.on_event("startup")
 async def startup():
 
-    ConfigParser
     main_cfg = ConfigParser()
     main_cfg.read("config/middlelayer.conf")
 
@@ -405,6 +400,10 @@ def k8s_delete_config_map(name, namespace=NAMESPACE):
 
 def k8s_store_result(pod_name, namespace=NAMESPACE):
 
+    main_cfg = ConfigParser()
+    main_cfg.read("config/middlelayer.conf")
+    minio_config = main_cfg['minio']
+
     print(f"REMOTE CONSOLE: job_id={pod_name}")
     resp = stream(client.CoreV1Api().connect_get_namespaced_pod_exec,
                   name=pod_name, namespace=namespace,
@@ -416,8 +415,15 @@ def k8s_store_result(pod_name, namespace=NAMESPACE):
                   tty=False,
                   _preload_content=False)
 
-    exec_command = f"MINIO_CP_OPTIONS=--recursive DESTINATION_BUCKET={namespace} DESTINATION_FOLDER={pod_name} sh save_result.sh && echo DONE || echo FAIL >&2 "
-    print(f"EXEC COMMAND: {exec_command}")
+    exec_command = f"MINIO_HOST=http://{minio_config.get('endpoint')} "
+    exec_command += f"MINIO_ACCESS_KEY={minio_config.get('access_key')} "
+    exec_command += f"MINIO_SECRET_KEY={minio_config.get('secret_key')} "
+    exec_command += f"MINIO_CP_OPTIONS=--recursive "
+    exec_command += f"DESTINATION_BUCKET={namespace} "
+    exec_command += f"DESTINATION_FOLDER={pod_name} "
+    exec_command += f"sh save_result.sh && echo DONE || echo FAIL >&2 "
+
+    print(f"EXEC COMMAND")
     resp.write_stdin(exec_command + "\n")
     successes = True
     while resp.is_open():
