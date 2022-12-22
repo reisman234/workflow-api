@@ -100,11 +100,19 @@ docker run -it --rm --name k8s-client \
 gx4ki/imla-k8s-api
 ```
 
+**Deploy a proxy Endpoint for connector**
+
+TODO: create docker-compose
+
 Deploy a proxy Endpoint for connector
 
 ```shell
-docker run -it --rm -p 8888:8888 \
-gx4ki/imla-k8s-client:latest uvicorn middlelayer.entrypoint:app --workers=4 --host=0.0.0.0 --port=8888
+docker build -t gx4ki/imla-k8s-client:latest .
+docker tag gx4ki/imla-k8s-client:latest harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-client:latest
+docker create -it --name entrypoint --network minikube --network-alias entrypoint -v $(pwd)/config/middlelayer.conf:/opt/k8s-api/config/middlelayer.conf  harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-client:latest uvicorn middlelayer.entrypoint:app --workers=4 --host=0.0.0.0 --port=8888
+docker network connect imla-net entrypoint
+docker container start entrypoint
+docker logs entrypoint --follow
 ```
 
 
@@ -119,5 +127,11 @@ gx4ki/imla-k8s-client:latest uvicorn middlelayer.entrypoint:app --workers=4 --ho
 - **FAIL** download result files directly to imla-k8s-client -- rosbag file changed during transfer()
 - **DONE** upload result files to minio
   - **DONE** get resultfile from minio and send it as response
-- deploy k8s-api in gx4ki-cluster
+- **DONE** deploy k8s-api in gx4ki-cluster
 - test with connector
+  - **FAIL** timeout problems after trigger carle and wait for result.
+    - there is a provider provision tate in the in the workflow of the transfer.
+      This state works with webhooks and callbacks which enables to process a long running job, bevor the data is ready.
+      This functionality facilitates the gx4ki-middlelayer to deploy a long running job into.
+      After the job finishes the callback communicates to the connector where the result data can be fetched.
+  - Implement provision handler in entrypoint
