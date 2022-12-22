@@ -522,7 +522,7 @@ async def deleteEnvFile(res_id):
     return {}
 
 
-@ app.get("/demo")
+@app.get("/demo/")
 async def doDemoProto(config_data: UploadFile, env_file: UploadFile):
     job_id = str(uuid.uuid4())
     app.FORCE_QUIT = False
@@ -578,26 +578,11 @@ async def doDemoProto(config_data: UploadFile, env_file: UploadFile):
     if len(job_results) == 0:
         return JSONResponse(content={"message": "no result file"}, status_code=400)
 
-    result_file = job_results[0]
-    print(f"GET END RETURN RESULT_FILE:{result_file}")
-
-    response = app.s3.get_object(job_id=job_id, object_name=result_file)
-    headers = dict(response.getheaders())
-    headers.pop("Server", None)
-    print(headers)
-    return StreamingResponse(response.stream(),
-                             headers=headers,
-                             background=BackgroundTask(closeResponse, response))
-
-
-def remove_tmp_file(tmp_filename):
-    print("BACKGROUND_TASK DELETE FILE")
-    os.remove(tmp_filename)
-
-
-@ app.post("/demo/forceQuit", status_code=200)
-async def doDemoForceQuit():
-    app.FORCE_QUIT = True
+    job_result = {
+        "job_id": job_id,
+        "job_results": job_results
+    }
+    return JSONResponse(content=job_result)
 
 
 @ app.get("/health")
