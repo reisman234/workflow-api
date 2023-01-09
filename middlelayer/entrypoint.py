@@ -18,6 +18,8 @@ main_cfg.read("config/middlelayer.conf")
 
 k8s_client_endpoint = main_cfg.get(section="k8s_client", option="endpoint")
 
+edc_x_api_key = main_cfg.get(section="edc", option="x_api_key")
+
 minio_cfg = main_cfg["minio"]
 app = FastAPI()
 
@@ -108,7 +110,7 @@ def task(edcRequest: EdcRequest, demo_task):
     try:
         logging.debug(f"callback to {completeUrl}")
         resp = requests.post(url=completeUrl, json=data,
-                             headers={"x-api-key": "password"})
+                             headers={"x-api-key": edc_x_api_key})
     except ConnectionError as e:
         print(f"ConnectionError: {completeUrl}")
         status_code = 400
