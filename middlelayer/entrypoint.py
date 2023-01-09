@@ -13,24 +13,22 @@ from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 logging.basicConfig(level=logging.DEBUG,
                     format='(%(threadName)-9s) %(message)s',)
 
-IMLA_K8S_CLIENT_HOST = "http://141.79.240.3:30910"
-IMLA_K8S_CLIENT_HOST = "http://192.168.49.2:30910"
-
 main_cfg = ConfigParser()
 main_cfg.read("config/middlelayer.conf")
-minio_cfg = main_cfg["minio"]
 
+k8s_client_endpoint = main_cfg.get(section="k8s_client", option="endpoint")
+
+minio_cfg = main_cfg["minio"]
 app = FastAPI()
 
 RESOURCE_BASE = os.getenv("RESOURCE_BASE", "/opt/resources")
-
 RESULT_BUCKET = "gx4ki-demo"
 
 
 @app.get("/demo/{case}")
 async def getDoDemo(case):
 
-    reqUrl = f"{IMLA_K8S_CLIENT_HOST}/demo/"
+    reqUrl = f"{k8s_client_endpoint}/demo/"
 
     post_files = {
         "env_file": open(f"{RESOURCE_BASE}/{case}.env", "rb"),
@@ -62,7 +60,7 @@ class EdcRequest(BaseModel):
 
 def task(edcRequest: EdcRequest, demo_task):
 
-    reqUrl = f"{IMLA_K8S_CLIENT_HOST}/demo/"
+    reqUrl = f"{k8s_client_endpoint}/demo/"
 
     post_files = {
         "env_file": open(f"{RESOURCE_BASE}/{demo_task}.env", "rb"),
@@ -119,7 +117,9 @@ def task(edcRequest: EdcRequest, demo_task):
 
 
 @app.post("/provision/")
-async def getFirst(edcRequest: EdcRequest, demo_task: str = "test"):
+async def getFirst(request: Request, edcRequest: EdcRequest, demo_task: str = "test"):
+    logging.debug(f"header: {request.headers}")
+    logging.debug(f"body {await request.body()}")
     logging.debug("create and start thread")
     logging.debug(f"do task: {demo_task}")
     t = Thread(target=task,
