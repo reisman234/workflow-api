@@ -41,26 +41,6 @@ IMAGE_PULL_SECRET = "imla-registry"
 RESULT_BUCKET = "gx4ki-demo"
 
 
-def k8s_get_client() -> client.CoreV1Api:
-    config.load_kube_config("kubeconfig/kubeconfig")
-    client.Configuration()
-    return client.CoreV1Api()
-
-
-async def list_pods():
-
-    v1 = k8s_get_client()
-    ret = v1.list_pod_for_all_namespaces(watch=False)
-
-    print("Listing pods with their IPs:")
-    result = {}
-    for i in ret.items:
-        print(f"{i.status.pod_ip}\t{i.metadata.namespace}\t{i.metadata.name}")
-        result[i.metadata.name] = {
-            "ip": i.status.pod_ip, "namespace": i.metadata.namespace}
-    return result
-
-
 def k8s_create_job_object(job_uuid, job_config: JobConfig, config_map_ref="", job_namespace=NAMESPACE) -> client.V1Job:
 
     container = client.V1Container(
@@ -203,61 +183,6 @@ def k8s_create_job(job, namespace=NAMESPACE):
                                                      namespace=namespace)
 
 
-def get_pod_name(job_uuid, namespace=NAMESPACE):
-    job_completed = False
-    # while not job_completed:
-    pod_list = client.CoreV1Api().list_namespaced_pod(
-        namespace=namespace,
-        label_selector=f"gx4ki.job.uuid={job_uuid}",
-        field_selector="status.phase=Running"
-    )
-    # print(pod_list)
-    for pod in pod_list.items:
-        print("pod:")
-        print(f"  name: {pod.metadata.name}")
-        print(f"  status.phase: {pod.status.phase}")
-        if pod.status.container_statuses is not None:
-            # print(
-            #     f"    status.container_statuses: {pod.status.container_statuses}")
-            if pod.status.container_statuses[0].state.terminated is not None:
-                print(
-                    f"    status.container_statuses[0].state.terminated.reason: \
-                        {pod.status.container_statuses[0].state.terminated.reason}")
-                print(
-                    f"    status.container_statuses[0].state.terminated.exit_code: \
-                        {pod.status.container_statuses[0].state.terminated.exit_code}")
-                if pod.status.container_statuses[0].state.terminated.exit_code == 0:
-                    job_completed = True
-                    pod_name = pod.metadata.name
-    return pod_name
-
-
-def get_job_status(api_instance, namespace=NAMESPACE):
-    job_completed = False
-
-    while not job_completed:
-        sleep(20)
-        api_response = api_instance.read_namespaced_job_status(
-            name="dummy",
-            namespace=namespace)
-        if api_response.status.succeeded is not None or \
-                api_response.status.failed is not None:
-            job_completed = True
-        # sleep(20)
-        print("Job status='%s'" % str(api_response))
-        return
-
-
-def update_job(api_instance, job, namespace=NAMESPACE):
-    # Update container image
-    job.spec.template.spec.containers[0].image = "perl"
-    api_response = api_instance.patch_namespaced_job(
-        name="dummy",
-        namespace=namespace,
-        body=job)
-    print("Job updated. status='%s'" % str(api_response.status))
-
-
 def delete_job(api_instance, namespace=NAMESPACE):
     api_response = api_instance.delete_namespaced_job(
         name="dummy",
@@ -307,6 +232,10 @@ async def startup():
     else:
         raise Exception("FAIL: cannot connect to control plain")
 
+    # TODO this raw call against healthz endpoint on the gx4ki cluster(rke2) will lead to "401 Unauthorized" error,
+    # despite of the used cluster role configuration. Other rules of the cluster role working as expected.
+    # In a local test environment with minikube, this call will work
+    #
     # result = client.ApiClient().call_api(resource_path="/healthz",
     #                                      method="GET",
     #                                      #  query_params={"verbose": "true"},
