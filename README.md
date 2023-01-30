@@ -96,6 +96,37 @@ docker-compose -f docker-compose.entrypoint.yaml up
   - **DONE** Implement provision handler in entrypoint
 
 
+### Demo Use-Case
+
+Carla-Demo V0.1
+
+Run all in once:
+1. trigger job in provison phase of connector
+
+2. trigger job execution with job-config and dotenv-file
+    - create configmap from dotenv-file
+    - deploy job in cluster
+    - wait for finish
+    - store rosbag result
+
+3. post callback to connector with storage information
+4. data transfer from minio over connector to datasink
+
+![middlelayer-overview](./docs/middlelayer-overview.png)
+
+
+### Discussion
+
+**Provision Compute**
+
+I started a [Discussion#2405](https://github.com/eclipse-edc/Connector/discussions/2405) in EDC-Connector Repo, how we can address the feature of compute-/ service-offering in a data space.
+As far as I understand the answer, which I got so far. The connector is just used to provision a backend data-plane and some secrets to access it.
+The following picture shows that concept.
+
+![concept-edc-service-provider](./docs/edc-service-provider.png)
+
+
+
 ---
 
 ## Developer Topics

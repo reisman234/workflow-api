@@ -1,11 +1,11 @@
-@startuml job-lifecycle
+@startuml sq-overview-middlelayer
 
-edc_provider -> gx4ki_mw_entrypoint: **post** /provision/
+edc_provider -> gx4ki_ml_entrypoint: **post** /provision/
 
-gx4ki_mw_entrypoint -> gx4ki_mw_entrypoint: create <thread>
-activate gx4ki_mw_entrypoint #Salmon
+gx4ki_ml_entrypoint -> gx4ki_ml_entrypoint: create <thread>
+activate gx4ki_ml_entrypoint #Salmon
 
-gx4ki_mw_entrypoint -> gx4ki_k8s_client: **get** /demo/
+gx4ki_ml_entrypoint -> gx4ki_k8s_client: **get** /demo/
 
 activate gx4ki_k8s_client #DarkSalmon
 
@@ -27,10 +27,10 @@ gx4ki_k8s_client <-> gx4ki_job : exec into data-side-car\nand store data
 deactivate gx4ki_job
 deactivate gx4ki_k8s_client
 
-gx4ki_k8s_client -> gx4ki_mw_entrypoint: **return** job_data
+gx4ki_k8s_client -> gx4ki_ml_entrypoint: **return** job_data
 deactivate gx4ki_k8s_client
 
 
-gx4ki_mw_entrypoint -> edc_provider: **post** /callback/<transferid>
-deactivate gx4ki_mw_entrypoint
+gx4ki_ml_entrypoint -> edc_provider: **post** /callback/<transferid>
+deactivate gx4ki_ml_entrypoint
 @enduml
