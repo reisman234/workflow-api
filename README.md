@@ -117,11 +117,24 @@ Run all in once:
 
 ### Discussion
 
-**Provision Compute**
+**Compute-/Service-Provider**
 
 I started a [Discussion#2405](https://github.com/eclipse-edc/Connector/discussions/2405) in EDC-Connector Repo, how we can address the feature of compute-/ service-offering in a data space.
 As far as I understand the answer, which I got so far. The connector is just used to provision a backend data-plane and some secrets to access it.
 The following picture shows that concept.
+
+
+1. request asset
+2. trigger provision
+  1.  provision of storage
+  2. share credentials
+3. http-backend gets information and triggers file transfers from data-providers or uploads files from own storage
+4. Negotiation of asset from third party/dataspace participant
+   1. transfer file
+5. Trigger to start processing
+6. execute and observe service/job
+  - state of executions (callback or polled by data-consumer)
+
 
 ![concept-edc-service-provider](./docs/edc-service-provider.png)
 
