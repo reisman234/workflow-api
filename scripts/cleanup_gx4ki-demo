@@ -1,0 +1,7 @@
+#!/bin/bash
+set -o pipefail
+
+echo "+ CLEANUP PODS"
+kubectl get pods -l gx4ki.app=gx4ki-demo -o name | xargs kubectl delete
+echo "+ CLEANUP CONFIG_MAPS"
+kubectl get configmaps -l app=gx4ki-demo -o name | xargs kubectl delete
