@@ -43,8 +43,3 @@ class TestImlaMinio(unittest.TestCase):
                                                   object_name=OBJECT_NAME,
                                                   content=OBJECT_CONTENT)
         self.assertTrue(result)
-
-
-class MyTest(unittest.TestCase):
-    def test(self):
-        self.assertEqual(fun(3), 4)

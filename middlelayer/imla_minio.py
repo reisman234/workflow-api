@@ -7,7 +7,7 @@ from minio import Minio
 # - close & open if needed
 # - keep it open
 
-
+from datetime import timedelta
 import sys
 
 
@@ -78,3 +78,19 @@ class ImlaMinio():
             response.release_conn()
 
         return result
+
+    def get_objects_list(self, bucket, prefix=None):
+        objects = self.client.list_objects(bucket_name=bucket,
+                                           prefix=prefix,
+                                           recursive=True)
+        return [o.object_name for o in objects]
+
+    def get_download_url(self, bucket, resource):
+        return self.client.presigned_get_object(bucket_name=bucket,
+                                                object_name=resource,
+                                                expires=timedelta(hours=1, minutes=30))
+
+    def get_upload_url(self, bucket_name, response_name):
+        return self.client.presigned_put_object(bucket_name=bucket_name,
+                                                object_name=response_name,
+                                                expires=timedelta(hours=1, minutes=30))

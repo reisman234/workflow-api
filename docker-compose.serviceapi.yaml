@@ -1,0 +1,32 @@
+version: "3"
+services:
+
+  # TODO service_api
+
+  workflow_storage:
+    image: quay.io/minio/minio
+    container_name: workflow_storage
+    command: [
+      "server",
+      "/data",
+      "--console-address",
+      ":9090",
+    ]
+    user:
+      1000:1000
+    volumes:
+      - ./tmp/minio/:/data
+    environment:
+      - MINIO_ROOT_USER=root
+      - MINIO_ROOT_PASSWORD=changeme123
+      - TZ=Europe/Berlin
+    network_mode: host
+    # networks:
+    #   imla-net:
+    #     ipv4_address: 192.168.205.6
+    #     aliases:
+    #       - workflow_storage
+
+networks:
+  workflow-net:
+    external: true

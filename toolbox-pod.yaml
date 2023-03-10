@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: toolbox
   namespace: gx4ki-demo
-  labels:
+  labels::
     app: toolbox
 spec:
   serviceAccountName: gx4ki-sa
