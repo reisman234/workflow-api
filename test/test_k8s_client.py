@@ -3,7 +3,8 @@ from unittest import TestCase
 from middlelayer.k8sClient import config
 from middlelayer.k8sClient import k8s_setup_config, k8s_get_healthz,\
     k8s_create_config_map, k8s_delete_config_map, k8s_list_config_maps_names, \
-    k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, k8s_list_pod_names
+    k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, k8s_list_pod_names,\
+    k8s_create_service, k8s_delte_service
 
 
 from middlelayer.backend import WorkflowResource
@@ -79,3 +80,18 @@ class TestK8sClient(TestCase):
         sleep(15)
         k8s_delete_pod(
             name=job_id)
+
+    def test_create_side_car_service(self):
+
+        # TODO make test standalone
+
+        k8s_create_service(name="my-pod-service",
+                           namespace="gx4ki-demo",
+                           job_id="my-pod")
+
+    def test_delete_side_car_service(self):
+
+        # TODO make test standalone
+
+        k8s_delte_service(name="my-pod-service",
+                          namespace="gx4ki-demo")

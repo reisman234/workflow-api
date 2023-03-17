@@ -1,4 +1,5 @@
 import uuid
+from typing import List
 from kubernetes import client, config, watch
 from kubernetes.client.exceptions import ApiException
 from middlelayer.models import WorkflowResource
@@ -30,7 +31,7 @@ def k8s_get_healthz():
 
 def k8s_create_pod_manifest(job_uuid,
                             job_config: WorkflowResource,
-                            config_map_ref="",
+                            config_map_ref: List[str] = None,
                             job_namespace=NAMESPACE) -> client.V1Pod:
     container = client.V1Container(
         name="worker",
@@ -52,7 +53,7 @@ def k8s_create_pod_manifest(job_uuid,
 
     if config_map_ref:
         env_from = [client.V1EnvFromSource(config_map_ref=client.V1ConfigMapEnvSource(name=ref))
-                    for ref in config_map_ref.split(",") if ref]
+                    for ref in config_map_ref]
         container.env_from = env_from
 
     side_car = client.V1Container(
@@ -104,6 +105,34 @@ def k8s_list_pod_names(namespace=NAMESPACE):
     return [x.metadata.name for x in pod_list.items]
 
 
+def k8s_create_service(name: str,
+                       namespace: str,
+                       job_id: str):
+
+    service_body = client.V1Service(
+        spec=client.V1ServiceSpec(
+            type="NodePort",
+            ports=[client.V1ServicePort(
+                name="http",
+                node_port=31999,
+                port=9999,
+                target_port=9999
+            )],
+            selector={"gx4ki-job-uuid": job_id}),
+        metadata=client.V1ObjectMeta(name=name,
+                                     labels={"gx4ki-app": "gx4ki-demo"}))
+    client.CoreV1Api().create_namespaced_service(namespace=namespace,
+                                                 body=service_body)
+
+
+def k8s_delte_service(name: str,
+                      namespace: str):
+
+    client.CoreV1Api().delete_namespaced_service(
+        name=name,
+        namespace=namespace)
+
+
 def k8s_create_config_map(data, name: str, namespace=NAMESPACE, labels=None):
 
     config_map = client.V1ConfigMap(data=data,
@@ -133,18 +162,17 @@ def k8s_delete_config_map(name, namespace=NAMESPACE):
 
 def k8s_get_job_info(job_uuid, namespace=NAMESPACE):
     pod_list = client.CoreV1Api().list_namespaced_pod(namespace=namespace,
-                                                      label_selector=f"gx4ki.job.uuid={job_uuid}")
+                                                      label_selector=f"gx4ki-job-uuid={job_uuid}")
 
     assert len(pod_list.items) == 1
-    job_pod = client.V1Pod(pod_list.items[0])
-    pod_info = {"pod_name": job_pod.metadata.name}
+    pod_info = {"pod_name": pod_list.items[0].metadata.name}
 
-    pod_info["pod.status.phase"] = job_pod.status.phase
+    pod_info["pod.status.phase"] = pod_list.items[0].status.phase
 
     pod_info["container_states"] = None
-    if job_pod.status.container_statuses:
+    if pod_list.items[0].status.container_statuses:
         pod_info["container_states"] = {container_status.name: container_status.state.to_dict()
-                                        for container_status in job_pod.status.container_statuses}
+                                        for container_status in pod_list.items[0].status.container_statuses}
 
     return pod_info
 

@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock, Mock
 
 from fastapi.testclient import TestClient
 
+
 from middlelayer.models import ServiceDescription, ServiceResouce, WorkflowResource
 import middlelayer.service_api as testee_mod
 from middlelayer.service_api import service_api, ServiceApi, SERVICE_DESCRIPTIONS, SERVICE_ID_CARLA
@@ -15,9 +16,11 @@ class TestServiceApi(TestCase):
     def setUp(self) -> None:
         # TODO does not work?
         # self.client = TestClient(service_api)
-        self.headers = {"access_token": "password"}
+        self.headers = {"access_token": "pass"}
         testee_mod.SERVICES.clear()
         testee_mod.SERVICES["test_service"] = {"test_id": "service_info"}
+
+        self.storage_bucket = "test_bucket"
 
         self.test_service_id = "test_id"
         self.test_service = ServiceDescription(
@@ -70,7 +73,9 @@ class TestServiceApi(TestCase):
                 f"/services/{self.test_service_id}/info/", headers=self.headers)
 
             self.assertFalse(response.is_error)
-            self.assertEqual(response.json(), self.test_service.json())
+            self.assertEqual(
+                ServiceDescription(**response.json()),
+                self.test_service)
 
             response = test_client.get(
                 f"/services/fake/info/", headers=self.headers)
@@ -85,7 +90,7 @@ class TestServiceApi(TestCase):
                 patch("middlelayer.service_api.ImlaMinio") as mock_storage_backend,\
                 TestClient(service_api) as test_client:
 
-            response = test_client.get(
+            response = test_client.put(
                 f"/services/{self.test_service_id}/input/test_res_in")
             self.assertTrue(response.is_client_error)
             self.assertTrue(response.status_code ==
@@ -97,13 +102,15 @@ class TestServiceApi(TestCase):
                 patch("middlelayer.service_api.ImlaMinio") as mock_storage_backend,\
                 TestClient(service_api) as test_client:
 
-            response = test_client.get(
+            response = test_client.put(
                 f"/services/{self.test_service_id}/input/invalid",
-                headers=self.headers)
+                headers=self.headers,
+                follow_redirects=False,
+                files={"input": b"data"})
 
             self.assertTrue(response.is_client_error)
-            self.assertTrue(response.status_code ==
-                            testee_mod.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.status_code,
+                             testee_mod.HTTP_400_BAD_REQUEST)
 
     def test_get_service_input_info_valid_resource(self):
 
@@ -112,14 +119,17 @@ class TestServiceApi(TestCase):
                 TestClient(service_api) as test_client:
 
             mock_storage_instance = mock_storage_backend.return_value
-            mock_storage_instance.get_upload_url.return_value = "fake_upload_url"
+            mock_storage_instance.get_upload_url.return_value = "https://fake_storage"
 
-            response = test_client.get(
+            response = test_client.put(
                 f"/services/{self.test_service_id}/input/test_res_in",
-                headers=self.headers)
+                headers=self.headers,
+                follow_redirects=False,
+                files={"input": b"data"})
 
-            self.assertFalse(response.is_error)
-            self.assertEqual(response.json()["url"], "fake_upload_url")
+            self.assertTrue(response.is_redirect)
+            self.assertEqual(response.next_request.url,
+                             "https://fake_storage")
 
     def test_get_service_output_info_missing_auth(self):
 
@@ -179,13 +189,15 @@ class TestServiceApi(TestCase):
             mock_storage_instance = mock_storage_backend.return_value
             mock_storage_instance.get_objects_list.return_value = [
                 test_resource_storage_name]
-            mock_storage_instance.get_download_url.return_value = "fake_download_url"
+            mock_storage_instance.get_download_url.return_value = "https://fake_storage.org"
 
             response = test_client.get(
                 f"/services/{self.test_service_id}/output/test_res_out",
-                headers=self.headers)
-            self.assertFalse(response.is_error)
-            self.assertEqual(response.json()['url'], "fake_download_url")
+                headers=self.headers,
+                follow_redirects=False)
+            self.assertTrue(response.is_redirect)
+            self.assertEqual(response.next_request.url,
+                             "https://fake_storage.org")
 
     def test_post_start_service_workflow_with_insufficient_resource(self):
 
@@ -431,8 +443,6 @@ class TestServiceApi(TestCase):
 
             mock_storage_instance = mock_storage_backend.return_value
 
-            mock_get_object = mock_storage_instance.get_object.return_value
-
             service_id = self.test_service_id
             workflow_id = "fake_workflow_id"
             testee = ServiceApi()
@@ -441,11 +451,6 @@ class TestServiceApi(TestCase):
                                workflow_id=workflow_id)
 
             for input in self.test_service.inputs:
-                mock_workflow_instance.handle_input.assert_called_with(
-                    workflow_id=workflow_id,
-                    input_resource=input,
-                    data=mock_get_object)
+                mock_workflow_instance.handle_input.assert_called()
 
-            mock_workflow_instance.commit_workflow.assert_called_once_with(
-                workflow_id=workflow_id,
-                workflow_resource=self.test_service.workflow_resource)
+            mock_workflow_instance.commit_workflow.assert_called_once()

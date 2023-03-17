@@ -1,7 +1,7 @@
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 from threading import Thread
-from fastapi import FastAPI, Depends, HTTPException, Security, Header, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Security, Body
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
@@ -9,7 +9,7 @@ from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 from uuid import uuid4
 
 from middlelayer.imla_minio import ImlaMinio
-from middlelayer.models import ServiceDescription, WorkflowResource
+from middlelayer.models import ServiceDescription, WorkflowResource, WorkflowStoreInfo
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 
 
@@ -17,14 +17,14 @@ from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 # SECURITY
 ##########
 
-API_KEY = "password"
+API_KEY = "pass"
 
 api_key_header = APIKeyHeader(name="access_token", auto_error=False)
 
 
-async def get_api_key(api_key_header: str = Security(api_key_header)):
-    if api_key_header == API_KEY:
-        return api_key_header
+async def get_api_key(api_key: str = Security(api_key_header)):
+    if api_key == API_KEY:
+        return api_key
     else:
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN, detail="Could not validate API KEY"
@@ -39,15 +39,7 @@ service_api = FastAPI(dependencies=[Depends(get_api_key)])
 SERVICE_ID_CARLA = "carla"
 SERVICE_ID = SERVICE_ID_CARLA
 
-
-SERVICES = {
-    "services": {
-        SERVICE_ID_CARLA: {
-            "start_date": datetime.now(),
-            "end_date:": datetime.now() + timedelta(days=7)
-        }
-    }
-}
+USER = "dummy-user"
 
 
 SERVICE_DESCRIPTION_CARLA = {
@@ -59,15 +51,56 @@ SERVICE_DESCRIPTION_CARLA = {
                                           gpu=True)
 }
 
+SERVICE_ID_DUMMY = "dummy"
+SERVICE_DESCRIPTION_DUMMY = {
+    "service_id": SERVICE_ID_DUMMY,
+    "inputs":  [{"resource_name": "env", "type": 1, "description": "List of environment Variables for dummy-job Container"}],
+    "outputs": [{"resource_name": "result", "type": 2, "description": "dummy output file"}],
+    "workflow_resource": WorkflowResource(worker_image="harbor.gx4ki.imla.hs-offenburg.de/ralphhso/dummy-job:py3.8-alpine",
+                                          worker_image_output_directory="/output/",
+                                          gpu=False)
+}
+
 service_description_carla = ServiceDescription(**SERVICE_DESCRIPTION_CARLA)
 
+service_description_dummy = ServiceDescription(**SERVICE_DESCRIPTION_DUMMY)
 
-SERVICE_DESCRIPTIONS = {SERVICE_ID_CARLA: service_description_carla}
+SERVICE_DESCRIPTIONS = {SERVICE_ID_CARLA: service_description_carla,
+                        SERVICE_ID_DUMMY: service_description_dummy}
 
+SERVICES = {
+    "services": {
+        SERVICE_ID_CARLA: {
+            "start_date": datetime.now(),
+            "end_date:": datetime.now() + timedelta(days=7)
+        },
+        SERVICE_ID_DUMMY: {
+            "start_date": datetime.now(),
+            "end_date:": datetime.now() + timedelta(days=7)
+        },
+    }
+}
+
+user_workflow = {}
+
+
+def add_workflow_id(user_id: str, workflow_id: str):
+    if user_id not in user_workflow.keys():
+        user_workflow[user_id] = [workflow_id]
+    else:
+        user_workflow[user_id].append(workflow_id)
+
+
+def get_workflow_ids(user_id: str):
+    if user_id not in user_workflow.keys():
+        return []
+    else:
+        return user_workflow[user_id]
 
 ###############
 # CONFIGURATION
 ###############
+
 
 S_CONFIG = """
 [minio]
@@ -78,7 +111,7 @@ secure: False
 """
 
 
-RESULT_BUCKET = SERVICE_ID_CARLA+"-storage"
+RESULT_BUCKET = USER+"-storage"
 # storage = None
 # workflow_backend = None
 
@@ -165,15 +198,33 @@ class ServiceApi():
             self.workflow_backend.handle_input(
                 workflow_id=workflow_id,
                 input_resource=resource,
-                data=self.storage.get_object())
+                get_data_handle=lambda: self.storage.get_resource_data(
+                    bucket=RESULT_BUCKET,
+                    resource=f"{service_id}/inputs/{resource.resource_name}"))
 
         self.workflow_backend.commit_workflow(
             workflow_id=workflow_id,
-            workflow_resource=service_description.workflow_resource)
+            workflow_resource=service_description.workflow_resource,
+            workflow_finished_handle=lambda: self.workflow_finished_handle(
+                service_description=service_description,
+                workflow_id=workflow_id))
 
-        # TODO:
-        # - stores result data to user bucket
-        # - removes job and config maps
+    def workflow_finished_handle(self, service_description: ServiceDescription, workflow_id: str):
+
+        result_files = [i.resource_name for i in service_description.inputs]
+
+        workflow_store_info = WorkflowStoreInfo(
+            minio=self.storage.get_store_info(),
+            destination_bucket=RESULT_BUCKET,
+            destination_path=f"{service_description.service_id}/outputs",
+            result_files=result_files)
+
+        self.workflow_backend.store_result(
+            workflow_id=workflow_id,
+            workflow_store_info=workflow_store_info)
+
+        self.workflow_backend.cleanup(
+            workflow_id=workflow_id)
 
     def commit_workflow(self, service_id, workflow_id):
         """
@@ -183,6 +234,10 @@ class ServiceApi():
                                name="commit_task",
                                args=[service_id, workflow_id])
         commit_thread.start()
+
+        add_workflow_id(
+            user_id=USER,
+            workflow_id=workflow_id)
 
     def get_workflow_status(self, service_id: str, workflow_id: str):
         service_description = self.get_service_description(service_id)
@@ -195,8 +250,10 @@ class ServiceApi():
             workflow_id=workflow_id)
 
     def workflow_exists(self, service_description: ServiceDescription, workflow_id: str):
-        # TODO
-        raise NotImplementedError()
+        workflow_ids = get_workflow_ids(
+            user_id=USER)
+
+        return workflow_id in workflow_ids
 
     def stop_workflow(self, service_id: str, workflow_id: str):
         service_description = self.get_service_description(service_id)
@@ -237,28 +294,33 @@ async def get_service_info(service_id: str):
 
     return service_description
 
+# curl -H "content-type: text/plain "  -H 'access_token: password' -XPUT $UPLOAD_URL   --data-binary @resources/test.env
 
-@service_api.get("/services/{service_id}/input/{resource}")
-async def get_service_input_info(service_id: str, resource: str):
-    """
-    return a upload url for the specified resource
-    """
 
-    resource_upload = client.generate_resource_upload_url(service_id,
-                                                          resource)
+# @service_api.get("/services/{service_id}/input/{resource}")
+# async def get_service_input_info(service_id: str, resource: str):
+#     """
+#     return a upload url for the specified resource
+#     """
 
-    return resource_upload
+#     resource_upload = client.generate_resource_upload_url(service_id,
+#                                                           resource)
+
+#     return resource_upload
 
 
 @service_api.put("/services/{service_id}/input/{resource}")
-async def get_service_input_info(service_id: str, resource: str, input: UploadFile):
+async def get_service_input_info(service_id: str,
+                                 resource: str,
+                                 input_file: bytes = Body(..., media_type="text/plain")):
+    # pylint: disable=W0613
+
     """
-    return a upload url for the specified resource
+    Uploads a file into the user storage
     """
 
     resource_upload = client.generate_resource_upload_url(service_id,
                                                           resource)
-
     return RedirectResponse(url=resource_upload["url"])
 
 
@@ -278,7 +340,9 @@ async def list_service_workflow(service_id: str):
     """
     returns a list of all running workflows and its IDs.
     """
-    return {}
+
+    return get_workflow_ids(
+        user_id=USER)
 
 
 @service_api.post("/services/{service_id}/workflow/execute")
@@ -299,7 +363,6 @@ async def start_service_workflow(service_id: str):
 
     client.commit_workflow(service_id, workflow_id)
 
-    # TODO store workflow_id
     return {"workflow_id": workflow_id}
 
 

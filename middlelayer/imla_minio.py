@@ -1,5 +1,6 @@
 
 from minio import Minio
+from minio.deleteobjects import DeleteObject
 # maybe use aws-s3 lib
 # 1. verbindung nur öffnen wenn benötigt
 # try&error replace return statements with yield
@@ -7,6 +8,7 @@ from minio import Minio
 # - close & open if needed
 # - keep it open
 
+from middlelayer.models import MinioStoreInfo
 from datetime import timedelta
 import sys
 
@@ -15,11 +17,17 @@ class ImlaMinio():
 
     def __init__(self, minio_config, result_bucket):
 
-        self.client = Minio(
+        self.store_info = MinioStoreInfo(
             endpoint=minio_config.get('endpoint'),
             access_key=minio_config.get('access_key'),
             secret_key=minio_config.get('secret_key'),
             secure=minio_config.getboolean('secure')
+        )
+        self.client = Minio(
+            endpoint=self.store_info.endpoint,
+            access_key=self.store_info.access_key,
+            secret_key=self.store_info.secret_key,
+            secure=self.store_info.secure
         )
         self.result_bucket = result_bucket
         self._init_result_bucket()
@@ -27,6 +35,9 @@ class ImlaMinio():
     def _init_result_bucket(self):
         if not self.client.bucket_exists(self.result_bucket):
             self.client.make_bucket(self.result_bucket)
+
+    def get_store_info(self) -> MinioStoreInfo:
+        return self.store_info
 
     def get_bucket_names(self):
         buckets = self.client.list_buckets()
@@ -50,7 +61,14 @@ class ImlaMinio():
     def create_bucket(self, bucket_name):
         self.client.make_bucket(bucket_name=bucket_name)
 
-    def remove_bucket(self, bucket_name):
+    def remove_bucket(self, bucket_name, force=False):
+        if force:
+            delete_object_list = [DeleteObject(x.object_name) for x in self.client.list_objects(bucket_name=bucket_name,
+                                                                                                recursive=True)]
+            for err in self.client.remove_objects(bucket_name=bucket_name,
+                                                  delete_object_list=delete_object_list):
+                print(err)
+
         self.client.remove_bucket(bucket_name=bucket_name)
 
     def bucket_exists(self, bucket_name):
@@ -78,6 +96,18 @@ class ImlaMinio():
             response.release_conn()
 
         return result
+
+    def get_resource_data(self, bucket, resource):
+        try:
+            response = self.client.get_object(bucket_name=bucket,
+                                              object_name=resource)
+
+            return response.data.decode(
+                encoding="utf-8"
+            )
+        finally:
+            response.close()
+            response.release_conn()
 
     def get_objects_list(self, bucket, prefix=None):
         objects = self.client.list_objects(bucket_name=bucket,
