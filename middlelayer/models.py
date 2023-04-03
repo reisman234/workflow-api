@@ -1,6 +1,6 @@
 # pylint: disable=no-name-in-module
 
-from typing import List
+from typing import List, Union
 from datetime import datetime, timedelta
 from enum import IntEnum
 from pydantic import BaseModel
@@ -28,7 +28,7 @@ class ServiceResouce(BaseModel):
 
 class WorkflowResource(BaseModel):
     worker_image: str
-    worker_image_output_directory: str
+    worker_image_output_directory: Union[str,None]
     gpu: bool
 
 

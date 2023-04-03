@@ -243,7 +243,7 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
                 workflow_store_info=workflow_store_info)
 
         mock_requests.post.assert_called_once_with(
-            url=f"http://{self.job_id}/store_result/",
+            url=f"http://{self.job_id}/store/",
             data=workflow_store_info
         )
 

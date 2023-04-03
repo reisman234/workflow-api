@@ -221,7 +221,6 @@ class TestServiceApi(TestCase):
             mock_storage_instance.get_objects_list.assert_called_once()
 
     def test_post_start_service_workflow_with_resource(self):
-        # TODO
         test_resource_storage_name = f"{self.test_service_id}/inputs/test_res_in"
 
         with patch("middlelayer.service_api.K8sWorkflowBackend") as mock_workflow_backend,\
@@ -250,7 +249,6 @@ class TestServiceApi(TestCase):
             self.assertEqual(response.json()["workflow_id"],
                              "fake_workflow_id")
 
-            mock_workflow_instance.handle_input.assert_called_once_with
             mock_thread.assert_called_once()
             mock_thread_instance.start.assert_called_once()
 

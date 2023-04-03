@@ -1,10 +1,26 @@
-import uuid
-from typing import List
-from kubernetes import client, config, watch
-from kubernetes.client.exceptions import ApiException
-from middlelayer.models import WorkflowResource
+from typing import List, Dict, Union
 
-from kubernetes.client import V1ConfigMapList
+import urllib3
+import requests
+
+from kubernetes import client, config, watch
+from kubernetes.stream import portforward
+from kubernetes.client.exceptions import ApiException
+
+
+from middlelayer.models import WorkflowResource, BaseModel
+
+
+class K8sContainerStateDate(BaseModel):
+    state: str
+    details: str
+
+
+class K8sPodStateData(BaseModel):
+    event_type: str
+    pod_phase: str
+    container_statuses: Union[Dict[str, K8sContainerStateDate], None]
+
 
 NAMESPACE = "default"
 IMAGE_PULL_SECRET = "imla-registry"
@@ -37,15 +53,17 @@ def k8s_create_pod_manifest(job_uuid,
         name="worker",
         image=job_config.worker_image,
         image_pull_policy="Always",
-        args=["entrypoint.sh"],
-        command=["/bin/bash"],
-        volume_mounts=[
+        # args=["entrypoint.sh"],
+        # command=["/bin/bash"],
+    )
+
+    if job_config.worker_image_output_directory:
+        container.volume_mounts = [
             client.V1VolumeMount(
                 mount_path=job_config.worker_image_output_directory,
                 name="output-mount"
             )
         ]
-    )
 
     if job_config.gpu:
         container.resources = client.V1ResourceRequirements(
@@ -58,16 +76,17 @@ def k8s_create_pod_manifest(job_uuid,
 
     side_car = client.V1Container(
         name="data-side-car",
-        image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-data-side-car:latest",
-        command=["/bin/sh"],
-        tty=True,
-        volume_mounts=[
+        image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/data-side-car:latest",
+        # command=["/bin/sh"],
+        # tty=True,
+        image_pull_policy="Never",  # TODO REMOVE
+    )
+
+    if job_config.worker_image_output_directory:
+        side_car.volume_mounts = [
             client.V1VolumeMount(
                 mount_path="/output",
-                name="output-mount"
-            )
-        ]
-    )
+                name="output-mount")]
 
     pod_spec = client.V1PodSpec(restart_policy="Never",
                                 containers=[container, side_car],
@@ -114,7 +133,7 @@ def k8s_create_service(name: str,
             type="NodePort",
             ports=[client.V1ServicePort(
                 name="http",
-                node_port=31999,
+                node_port=32000,
                 port=9999,
                 target_port=9999
             )],
@@ -177,21 +196,129 @@ def k8s_get_job_info(job_uuid, namespace=NAMESPACE):
     return pod_info
 
 
-def k8s_watch_pod_events(pod_name, namespace=NAMESPACE):
+def k8s_watch_pod_events(pod_name, pod_state_handle, namespace=NAMESPACE):
     # TODO currently unused in favor of k8s_get_job_info
-    w = watch.Watch()
-    for event in w.stream(client.CoreV1Api().list_namespaced_pod, namespace=namespace, field_selector=f"metadata.name={pod_name}"):
-        # Print the event type and the pod's new status
-        def get_container_state(status):
-            if status.running is not None:
-                return f"running, details: {status.running}"
-            elif status.terminated is not None:
-                return f"terminated, details: {status.terminated}"
-            else:
-                return f"waiting, details: {status.waiting}"
-        container_states = "unknown"
-        if event['object'].status.container_statuses is not None:
-            container_states = [(x.name, get_container_state(x.state))
-                                for x in event['object'].status.container_statuses]
-        print(
-            f"Event type: {event['type']}, Pod status: {event['object'].status.phase}, ContainerStatus: {container_states}")
+
+    event_watch = watch.Watch()
+    try:
+        for event in event_watch.stream(
+                client.CoreV1Api().list_namespaced_pod,
+                namespace=namespace,
+                field_selector=f"metadata.name={pod_name}"):
+
+            def get_container_state(status):
+                if status.running is not None:
+                    return {"state": "running",
+                            "details": status.running.to_str()}
+                elif status.terminated is not None:
+                    return {"state": "terminated",
+                            "details": status.terminated.to_str()}
+                else:
+                    return {"state": "waiting",
+                            "details": status.waiting.to_str()}
+
+            container_states = None
+            if event['object'].status.container_statuses is not None:
+                container_states = dict()
+                for x in event['object'].status.container_statuses:
+                    container_states[x.name] = get_container_state(x.state)
+
+            pod_state = K8sPodStateData(
+                event_type=event['type'],
+                pod_phase=event['object'].status.phase,
+                container_statuses=container_states)
+
+            can_exit = pod_state_handle(pod_state)
+            if can_exit:
+                break
+
+    finally:
+        event_watch.stop()
+
+
+def k8s_portforward(data, name, namespace=NAMESPACE) -> int:
+
+    # Monkey patch socket.create_connection which is used by http.client and
+    # urllib.request. The same can be done with urllib3.util.connection.create_connection
+    # if the "requests" package is used.
+    # socket_create_connection = socket.create_connection
+    socket_create_connection = urllib3.util.connection.create_connection
+
+    def kubernetes_create_connection(address, *args, **kwargs):
+        dns_name = address[0]
+        if isinstance(dns_name, bytes):
+            dns_name = dns_name.decode()
+        dns_name = dns_name.split(".")
+        if dns_name[-1] != 'kubernetes':
+            return socket_create_connection(address, *args, **kwargs)
+        if len(dns_name) not in (3, 4):
+            raise RuntimeError("Unexpected kubernetes DNS name.")
+        namespace = dns_name[-2]
+        name = dns_name[0]
+        port = address[1]
+        if len(dns_name) == 4:
+            if dns_name[1] in ('svc', 'service'):
+                service = client.CoreV1Api().read_namespaced_service(name, namespace)
+                for service_port in service.spec.ports:
+                    if service_port.port == port:
+                        port = service_port.target_port
+                        break
+                else:
+                    raise RuntimeError(
+                        "Unable to find service port: %s" % port)
+                label_selector = []
+                for key, value in service.spec.selector.items():
+                    label_selector.append("%s=%s" % (key, value))
+                pods = client.CoreV1Api().list_namespaced_pod(
+                    namespace, label_selector=",".join(label_selector)
+                )
+                if not pods.items:
+                    raise RuntimeError("Unable to find service pods.")
+                name = pods.items[0].metadata.name
+                if isinstance(port, str):
+                    for container in pods.items[0].spec.containers:
+                        for container_port in container.ports:
+                            if container_port.name == port:
+                                port = container_port.container_port
+                                break
+                        else:
+                            continue
+                        break
+                    else:
+                        raise RuntimeError(
+                            "Unable to find service port name: %s" % port)
+            elif dns_name[1] != 'pod':
+                raise RuntimeError(
+                    "Unsupported resource type: %s" %
+                    dns_name[1])
+        pf = portforward(client.CoreV1Api().connect_get_namespaced_pod_portforward,
+                         name, namespace, ports=str(port))
+        return pf.socket(port)
+    # socket.create_connection = kubernetes_create_connection
+
+    urllib3.util.connection.create_connection = kubernetes_create_connection
+
+    # Access the nginx http server using the
+    # "<pod-name>.pod.<namespace>.kubernetes" dns name.
+    response = requests.post(
+        f"http://{name}.pod.{namespace}.kubernetes:9999/store",
+        data=data
+    )
+
+    response.close()
+    return response.status_code
+
+
+def k8s_get_pod_log(pod_name: str,
+                    container: str = None,
+                    namespace: str = "default",
+                    tail_lines: int = 100):
+    """
+    make request against k8s api to retrieve logs from the specified container
+    """
+
+    response = client.CoreV1Api().read_namespaced_pod_log(name=pod_name,
+                                                          container=container,
+                                                          namespace=namespace,
+                                                          tail_lines=tail_lines)
+    return response

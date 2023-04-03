@@ -1,8 +1,9 @@
+from typing import Dict, List
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 from threading import Thread
 from fastapi import FastAPI, Depends, HTTPException, Security, Body
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 
@@ -48,25 +49,34 @@ SERVICE_DESCRIPTION_CARLA = {
     "outputs": [{"resource_name": "rosbag", "type": 2, "description": "Generated rosbag file from .env file"}],
     "workflow_resource": WorkflowResource(worker_image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/carla:latest",
                                           worker_image_output_directory="/home/carla/rosbag",
-                                          gpu=True)
-}
+                                          gpu=True)}
 
 SERVICE_ID_DUMMY = "dummy"
 SERVICE_DESCRIPTION_DUMMY = {
     "service_id": SERVICE_ID_DUMMY,
     "inputs":  [{"resource_name": "env", "type": 1, "description": "List of environment Variables for dummy-job Container"}],
     "outputs": [{"resource_name": "result", "type": 2, "description": "dummy output file"}],
-    "workflow_resource": WorkflowResource(worker_image="harbor.gx4ki.imla.hs-offenburg.de/ralphhso/dummy-job:py3.8-alpine",
+    "workflow_resource": WorkflowResource(worker_image="harbor.gx4ki.imla.hs-offenburg.de/ralphhso/dummy-job:latest",
                                           worker_image_output_directory="/output/",
-                                          gpu=False)
-}
+                                          gpu=False)}
+
+SERVICE_ID_NGINX = "nginx"
+SERVICE_DESCRIPTION_NGINX = {
+    "service_id": SERVICE_ID_NGINX,
+    "inputs":  [],
+    "outputs": [],
+    "workflow_resource": WorkflowResource(worker_image="nginx:latest",
+                                          worker_image_output_directory=None,
+                                          gpu=False)}
+
 
 service_description_carla = ServiceDescription(**SERVICE_DESCRIPTION_CARLA)
-
 service_description_dummy = ServiceDescription(**SERVICE_DESCRIPTION_DUMMY)
+service_description_nginx = ServiceDescription(**SERVICE_DESCRIPTION_NGINX)
 
 SERVICE_DESCRIPTIONS = {SERVICE_ID_CARLA: service_description_carla,
-                        SERVICE_ID_DUMMY: service_description_dummy}
+                        SERVICE_ID_DUMMY: service_description_dummy,
+                        SERVICE_ID_NGINX: service_description_nginx}
 
 SERVICES = {
     "services": {
@@ -81,10 +91,17 @@ SERVICES = {
     }
 }
 
-user_workflow = {}
+user_workflow: Dict[str, List[str]] = {}
 
 
-def add_workflow_id(user_id: str, workflow_id: str):
+def remove_workflow_id(user_id: str, workflow_id: str):
+    if user_id not in user_workflow.keys():
+        user_workflow[user_id] = [workflow_id]
+    else:
+        user_workflow[user_id].remove(workflow_id)
+
+
+def insert_workflow_id(user_id: str, workflow_id: str):
     if user_id not in user_workflow.keys():
         user_workflow[user_id] = [workflow_id]
     else:
@@ -104,7 +121,7 @@ def get_workflow_ids(user_id: str):
 
 S_CONFIG = """
 [minio]
-endpoint = localhost:9000
+endpoint = 192.168.49.2:30900
 access_key: root
 secret_key: changeme123
 secure: False
@@ -187,7 +204,7 @@ class ServiceApi():
             bucket=RESULT_BUCKET,
             prefix=resource_storage_prefix)
         for resource in service_description.inputs:
-            if not f'{resource_storage_prefix}/{resource.resource_name}' in objects_list:
+            if f'{resource_storage_prefix}/{resource.resource_name}' not in objects_list:
                 return False
         return True
 
@@ -211,7 +228,7 @@ class ServiceApi():
 
     def workflow_finished_handle(self, service_description: ServiceDescription, workflow_id: str):
 
-        result_files = [i.resource_name for i in service_description.inputs]
+        result_files = [i.resource_name for i in service_description.outputs]
 
         workflow_store_info = WorkflowStoreInfo(
             minio=self.storage.get_store_info(),
@@ -235,11 +252,13 @@ class ServiceApi():
                                args=[service_id, workflow_id])
         commit_thread.start()
 
-        add_workflow_id(
-            user_id=USER,
-            workflow_id=workflow_id)
+        insert_workflow_id(user_id=USER,
+                           workflow_id=workflow_id)
 
-    def get_workflow_status(self, service_id: str, workflow_id: str):
+    def get_workflow_status(self,
+                            service_id: str,
+                            workflow_id: str,
+                            verbose_level: int):
         service_description = self.get_service_description(service_id)
         if not self.workflow_exists(service_description, workflow_id):
             raise HTTPException(
@@ -247,7 +266,8 @@ class ServiceApi():
                 detail="invalid workflow_id"
             )
         return self.workflow_backend.get_status(
-            workflow_id=workflow_id)
+            workflow_id=workflow_id,
+            verbose_level=verbose_level)
 
     def workflow_exists(self, service_description: ServiceDescription, workflow_id: str):
         workflow_ids = get_workflow_ids(
@@ -262,18 +282,19 @@ class ServiceApi():
                 status_code=HTTP_400_BAD_REQUEST,
                 detail="invalid workflow_id"
             )
-        self.workflow_backend.stop_workflow(
+        self.workflow_backend.cleanup(
             workflow_id=workflow_id)
 
 
-# client: ServiceApi = None
-client: ServiceApi
+client: ServiceApi = None
 
 
 @service_api.on_event("startup")
 async def startup():
+
     global client
     client = ServiceApi()
+
     print("STARTUP")
 
 
@@ -381,14 +402,22 @@ async def stops_service_workflow(service_id: str, workflow_id: str):
 
 
 @service_api.get("/services/{service_id}/workflow/status/{workflow_id}")
-async def get_service_workflow_status(service_id: str, workflow_id: str):
+async def get_service_workflow_status(service_id: str, workflow_id: str, verbose_level: int = 0):
     """
     provides information about a workflow
     get logs of the worker-image of the workflow
     """
-    workflow_status = client.get_workflow_status(service_id, workflow_id)
+    if verbose_level not in [0, 1, 2]:
+        verbose_level = 0
 
-    return JSONResponse(status_code=HTTP_200_OK,
-                        content={"service_id": service_id,
-                                 "workflow_id": workflow_id,
-                                 "workflow_status": workflow_status})
+    workflow_status = client.get_workflow_status(service_id=service_id,
+                                                 workflow_id=workflow_id,
+                                                 verbose_level=verbose_level)
+    if verbose_level == 0:
+        return JSONResponse(status_code=HTTP_200_OK,
+                            content={"service_id": service_id,
+                                     "workflow_id": workflow_id,
+                                     "workflow_status": workflow_status})
+    if verbose_level in [1, 2]:
+        return PlainTextResponse(status_code=HTTP_200_OK,
+                                 content=workflow_status)
