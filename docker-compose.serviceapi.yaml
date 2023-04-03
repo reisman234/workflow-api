@@ -3,9 +3,9 @@ services:
 
   # TODO service_api
 
-  workflow_storage:
+  workflow-storage:
     image: quay.io/minio/minio
-    container_name: workflow_storage
+    container_name: workflow-storage
     command: [
       "server",
       "/data",
@@ -26,6 +26,14 @@ services:
     #     ipv4_address: 192.168.205.6
     #     aliases:
     #       - workflow_storage
+
+  data-side-car:
+    image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/data-side-car:latest
+    container_name: data-side-car
+    ports:
+      - 9999:9999
+    profiles:
+      - "data-side-car"
 
 networks:
   workflow-net:
