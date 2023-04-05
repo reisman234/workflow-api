@@ -26,16 +26,13 @@ NAMESPACE = "default"
 IMAGE_PULL_SECRET = "imla-registry"
 
 
-def k8s_setup_config(config_file=None):
+def k8s_setup_config(config_file=None, image_pull_secret=None):
     # if os.path.isfile(KUBE_CONFIG_FILE):
     config.load_kube_config(config_file=config_file)
 
-    # check if serviceaccount exits
-    # elif os.path.exists("/run/secrets/kubernetes.io/serviceaccount"):
-    #     print("startup: try loading service account")
-    #     config.load_incluster_config()
-    # else:
-    #     raise Exception("FAIL: cannot connect to control plain")
+    if image_pull_secret:
+        global IMAGE_PULL_SECRET
+        IMAGE_PULL_SECRET = image_pull_secret
 
 
 def k8s_get_healthz():
@@ -48,7 +45,8 @@ def k8s_get_healthz():
 def k8s_create_pod_manifest(job_uuid,
                             job_config: WorkflowResource,
                             config_map_ref: List[str] = None,
-                            job_namespace=NAMESPACE) -> client.V1Pod:
+                            job_namespace=NAMESPACE,
+                            labels=None) -> client.V1Pod:
     container = client.V1Container(
         name="worker",
         image=job_config.worker_image,
@@ -100,8 +98,8 @@ def k8s_create_pod_manifest(job_uuid,
         api_version="v1",
         kind="Pod",
         metadata=client.V1ObjectMeta(name=job_uuid,
-                                     labels={"gx4ki-app": "gx4ki-demo",
-                                             "gx4ki-job-uuid": job_uuid}),
+                                     namespace=job_namespace,
+                                     labels=labels),
         spec=pod_spec)
     return pod
 
@@ -177,23 +175,6 @@ def k8s_delete_config_map(name, namespace=NAMESPACE):
                                                         namespace=namespace)
     except ApiException as exc:
         print(exc)
-
-
-def k8s_get_job_info(job_uuid, namespace=NAMESPACE):
-    pod_list = client.CoreV1Api().list_namespaced_pod(namespace=namespace,
-                                                      label_selector=f"gx4ki-job-uuid={job_uuid}")
-
-    assert len(pod_list.items) == 1
-    pod_info = {"pod_name": pod_list.items[0].metadata.name}
-
-    pod_info["pod.status.phase"] = pod_list.items[0].status.phase
-
-    pod_info["container_states"] = None
-    if pod_list.items[0].status.container_statuses:
-        pod_info["container_states"] = {container_status.name: container_status.state.to_dict()
-                                        for container_status in pod_list.items[0].status.container_statuses}
-
-    return pod_info
 
 
 def k8s_watch_pod_events(pod_name, pod_state_handle, namespace=NAMESPACE):

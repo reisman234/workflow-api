@@ -1,6 +1,5 @@
 from typing import List, Dict, Union, Callable
 from threading import Thread, Event
-from time import sleep
 from uuid import uuid4
 from io import StringIO
 
@@ -12,7 +11,7 @@ import dotenv
 from middlelayer.models import ServiceResouce, ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo
 from middlelayer.k8sClient import K8sPodStateData
 from middlelayer.k8sClient import k8s_create_config_map, k8s_delete_config_map,\
-    k8s_create_pod_manifest, k8s_create_pod, k8s_get_job_info, k8s_delete_pod, \
+    k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, \
     k8s_setup_config,\
     k8s_watch_pod_events, k8s_get_pod_log, \
     k8s_portforward
@@ -133,12 +132,14 @@ class SimpleDB():
 
 class K8sWorkflowBackend(WorkflowBackend):
 
-    def __init__(self, namespace):
+    def __init__(self,
+                 namespace,
+                 image_pull_secret=None):
         self.dummy_db = SimpleDB()
         self.namespace = namespace
-        self.labels = {"gx4ki-app": "gx4ki-demo",
-                       "gx4ki-job-uuid": "job_uuid"}
-        k8s_setup_config()
+
+        k8s_setup_config(
+            image_pull_secret=image_pull_secret)
 
     def handle_input(self, workflow_id: str, input_resource: ServiceResouce, get_data_handle: Callable):
         """
@@ -155,7 +156,7 @@ class K8sWorkflowBackend(WorkflowBackend):
                 name=config_map_id,
                 namespace=self.namespace,
                 data=config_map_data,
-                labels={"gx4ki-app": "gx4ki-demo"})
+                labels=self.__get_lable(workflow_id=workflow_id))
 
             self.dummy_db.append_config_map(workflow_id, config_map_id)
         elif input_resource.type is ServiceResourceType.data:
@@ -173,7 +174,9 @@ class K8sWorkflowBackend(WorkflowBackend):
             job_uuid=job_id,
             job_config=workflow_resource,
             config_map_ref=config_map_ids,
-            job_namespace=self.namespace)
+            job_namespace=self.namespace,
+            labels=self.__get_lable(workflow_id=workflow_id,
+                                    job_id=job_id))
 
         k8s_create_pod(
             manifest=pod_manifest,
@@ -314,30 +317,11 @@ class K8sWorkflowBackend(WorkflowBackend):
 
         workflow_finished_handle()
 
-    def monitor_workflow(self,
-                         workflow_id: str,
-                         stop_event: Event,
-                         workflow_finished_handle: Callable[[], None]):
-        job_completed = False
-        job_id = self.dummy_db.get_job_data(
-            key=workflow_id).job_id
-        while not (job_completed or stop_event.is_set()):
-            sleep(10)
-            job_info = k8s_get_job_info(job_id,
-                                        namespace=self.namespace)
+    def __get_lable(self, workflow_id=None, job_id=None):
+        lable = {"app": "gx4ki-demo"}
+        if workflow_id:
+            lable["workflow-id"] = workflow_id
+        if job_id:
+            lable["job-id"] = job_id
 
-            if job_info["pod.status.phase"] == "Pending":
-                print("JOB STATE: PENDING...")
-                sleep(10)
-                if job_info["container_states"]:
-                    if job_info["container_states"]["worker"]['waiting']['reason'] == "ErrImagePull":
-                        raise Exception("FAIL")
-
-            elif job_info["container_states"]["worker"]['terminated'] is None:
-                print("JOB RUNNING...")
-                sleep(10)
-            else:
-                print("JOB COMPLETED")
-                job_completed = True
-                stop_event.set()
-                workflow_finished_handle()
+        return lable

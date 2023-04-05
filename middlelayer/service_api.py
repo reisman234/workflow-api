@@ -42,20 +42,20 @@ CONFIG_FILE_PATH = os.environ["CONFIG_FILE_PATH"]
 
 workflow_api_logger.debug("load config file %s", {CONFIG_FILE_PATH})
 
-config = ConfigParser()
-config.read(CONFIG_FILE_PATH)
+CONFIG = ConfigParser()
+CONFIG.read(CONFIG_FILE_PATH)
 
-if not config.has_section("workflow_api"):
+if not CONFIG.has_section("workflow_api"):
     raise ValueError("config has no workflow_api section")
+WORKFLOW_API_CONFIG = CONFIG["workflow_api"]
 
-WORKFLOW_API_USER = config["workflow_api"].get("workflow_api_user")
-WORKFLOW_API_ACCESS_TOKEN = config["workflow_api"].get(
-    "WORKFLOW_API_ACCESS_TOKEN")
+WORKFLOW_API_USER = WORKFLOW_API_CONFIG.get("workflow_api_user")
+WORKFLOW_API_ACCESS_TOKEN = WORKFLOW_API_CONFIG.get("WORKFLOW_API_ACCESS_TOKEN")
 WORKFLOW_API_USER_STORAGE = WORKFLOW_API_USER+"-storage"
 
-if not config.has_section("minio"):
+if not CONFIG.has_section("minio"):
     raise ValueError("config has no minio section")
-MINIO_CONFIG = config["minio"]
+MINIO_CONFIG = CONFIG["minio"]
 
 
 ##########
@@ -159,9 +159,12 @@ class ServiceApi():
 
         self.storage = ImlaMinio(MINIO_CONFIG, WORKFLOW_API_USER_STORAGE)
 
-        k8s_namespace = "gx4ki-demo"
-        self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
-            namespace=k8s_namespace)
+        if WORKFLOW_API_CONFIG.get("workflow_backend") == "kubernetes":
+            self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
+                namespace=WORKFLOW_API_CONFIG.get(
+                    "workflow_backend_namespace"),
+                image_pull_secret=WORKFLOW_API_CONFIG.get(
+                    "workflow_backend_image_pull_secret"))
 
     def get_service_description(self, service_id: str) -> ServiceDescription:
         description = SERVICE_DESCRIPTIONS.get(service_id)
