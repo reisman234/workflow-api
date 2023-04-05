@@ -1,30 +1,73 @@
+import logging
+import os
+import sys
 from typing import Dict, List
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 from threading import Thread
+from uuid import uuid4
+
 from fastapi import FastAPI, Depends, HTTPException, Security, Body
 from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
-
-from uuid import uuid4
 
 from middlelayer.imla_minio import ImlaMinio
 from middlelayer.models import ServiceDescription, WorkflowResource, WorkflowStoreInfo
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 
 
+#########
+# LOGGING
+#########
+
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+stdout_handle = logging.StreamHandler(sys.stdout)
+stdout_handle.setFormatter(formatter)
+stderr_hanlde = logging.StreamHandler(sys.stderr)
+stderr_hanlde.setFormatter(formatter)
+
+
+workflow_api_logger = logging.getLogger("workflow_api")
+workflow_api_logger.setLevel(level=logging.DEBUG)
+workflow_api_logger.addHandler(stdout_handle)
+# workflow_backend_logger.addHandler(stderr_hanlde)
+
+###############
+# CONFIGURATION
+###############
+
+CONFIG_FILE_PATH = os.environ["CONFIG_FILE_PATH"]
+
+workflow_api_logger.debug("load config file %s", {CONFIG_FILE_PATH})
+
+config = ConfigParser()
+config.read(CONFIG_FILE_PATH)
+
+if not config.has_section("workflow_api"):
+    raise ValueError("config has no workflow_api section")
+
+WORKFLOW_API_USER = config["workflow_api"].get("workflow_api_user")
+WORKFLOW_API_ACCESS_TOKEN = config["workflow_api"].get(
+    "WORKFLOW_API_ACCESS_TOKEN")
+WORKFLOW_API_USER_STORAGE = WORKFLOW_API_USER+"-storage"
+
+if not config.has_section("minio"):
+    raise ValueError("config has no minio section")
+MINIO_CONFIG = config["minio"]
+
+
 ##########
 # SECURITY
 ##########
 
-API_KEY = "pass"
 
 api_key_header = APIKeyHeader(name="access_token", auto_error=False)
 
 
 async def get_api_key(api_key: str = Security(api_key_header)):
-    if api_key == API_KEY:
+    if api_key == WORKFLOW_API_ACCESS_TOKEN:
         return api_key
     else:
         raise HTTPException(
@@ -38,11 +81,6 @@ service_api = FastAPI(dependencies=[Depends(get_api_key)])
 ##########
 
 SERVICE_ID_CARLA = "carla"
-SERVICE_ID = SERVICE_ID_CARLA
-
-USER = "dummy-user"
-
-
 SERVICE_DESCRIPTION_CARLA = {
     "service_id": SERVICE_ID_CARLA,
     "inputs":  [{"resource_name": "env", "type": 1, "description": "List of environment Variables for Carla Container"}],
@@ -114,32 +152,12 @@ def get_workflow_ids(user_id: str):
     else:
         return user_workflow[user_id]
 
-###############
-# CONFIGURATION
-###############
-
-
-S_CONFIG = """
-[minio]
-endpoint = 192.168.49.2:30900
-access_key: root
-secret_key: changeme123
-secure: False
-"""
-
-
-RESULT_BUCKET = USER+"-storage"
-# storage = None
-# workflow_backend = None
-
 
 class ServiceApi():
 
     def __init__(self):
 
-        config = ConfigParser()
-        config.read_string(S_CONFIG)
-        self.storage = ImlaMinio(config['minio'], RESULT_BUCKET)
+        self.storage = ImlaMinio(MINIO_CONFIG, WORKFLOW_API_USER_STORAGE)
 
         k8s_namespace = "gx4ki-demo"
         self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
@@ -163,7 +181,7 @@ class ServiceApi():
 
         # generate minio presigned put url
         upload_url = self.storage.get_upload_url(
-            RESULT_BUCKET,
+            WORKFLOW_API_USER_STORAGE,
             f"{service_id}/inputs/{resource_name}")
         return {"url": upload_url, "method": "put"}
 
@@ -179,7 +197,7 @@ class ServiceApi():
 
         # check if resource exists
         if resource_storage_name not in self.storage.get_objects_list(
-                bucket=RESULT_BUCKET,
+                bucket=WORKFLOW_API_USER_STORAGE,
                 prefix=resource_storage_prefix):
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
@@ -188,7 +206,7 @@ class ServiceApi():
 
         # generate minio presigned put url
         downlaod_url = self.storage.get_download_url(
-            RESULT_BUCKET,
+            WORKFLOW_API_USER_STORAGE,
             resource=resource_storage_name
         )
 
@@ -201,7 +219,7 @@ class ServiceApi():
         service_description = self.get_service_description(service_id)
         resource_storage_prefix = f"{service_id}/inputs"
         objects_list = self.storage.get_objects_list(
-            bucket=RESULT_BUCKET,
+            bucket=WORKFLOW_API_USER_STORAGE,
             prefix=resource_storage_prefix)
         for resource in service_description.inputs:
             if f'{resource_storage_prefix}/{resource.resource_name}' not in objects_list:
@@ -216,7 +234,7 @@ class ServiceApi():
                 workflow_id=workflow_id,
                 input_resource=resource,
                 get_data_handle=lambda: self.storage.get_resource_data(
-                    bucket=RESULT_BUCKET,
+                    bucket=WORKFLOW_API_USER_STORAGE,
                     resource=f"{service_id}/inputs/{resource.resource_name}"))
 
         self.workflow_backend.commit_workflow(
@@ -232,7 +250,7 @@ class ServiceApi():
 
         workflow_store_info = WorkflowStoreInfo(
             minio=self.storage.get_store_info(),
-            destination_bucket=RESULT_BUCKET,
+            destination_bucket=WORKFLOW_API_USER_STORAGE,
             destination_path=f"{service_description.service_id}/outputs",
             result_files=result_files)
 
@@ -252,7 +270,7 @@ class ServiceApi():
                                args=[service_id, workflow_id])
         commit_thread.start()
 
-        insert_workflow_id(user_id=USER,
+        insert_workflow_id(user_id=WORKFLOW_API_USER,
                            workflow_id=workflow_id)
 
     def get_workflow_status(self,
@@ -271,7 +289,7 @@ class ServiceApi():
 
     def workflow_exists(self, service_description: ServiceDescription, workflow_id: str):
         workflow_ids = get_workflow_ids(
-            user_id=USER)
+            user_id=WORKFLOW_API_USER)
 
         return workflow_id in workflow_ids
 
@@ -363,7 +381,7 @@ async def list_service_workflow(service_id: str):
     """
 
     return get_workflow_ids(
-        user_id=USER)
+        user_id=WORKFLOW_API_USER)
 
 
 @service_api.post("/services/{service_id}/workflow/execute")

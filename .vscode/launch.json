@@ -40,6 +40,9 @@
             "type": "python",
             "request": "launch",
             "module": "uvicorn",
+            "env": {
+                "CONFIG_FILE_PATH": "${workspaceFolder}/config/workflow-api.cfg"
+            },
             "args": [
                 "middlelayer.service_api:service_api",
                 "--reload",
