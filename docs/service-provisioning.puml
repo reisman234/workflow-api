@@ -1,0 +1,64 @@
+@startuml service-provisioning
+skinParam NoteBackgroundColor WhiteSmoke
+skinParam NoteFontColor Black
+skinParam ParticipantBackgroundColor WhiteSmoke
+skinParam ActorBackgroundColor WhiteSmoke
+skinParam AgentBackgroundColor White
+skinParam AgentBorderColor SkyBlue
+skinparam shadowing false
+skinparam BoxPadding 10
+
+!define ConsumerColor f8f2ff
+!define ProviderColor d9edff
+!define WarningColor Business
+!define LeadColor Technology
+
+autonumber
+
+box "Consumer ecosystem" #ConsumerColor
+    participant CBE as "Backend Service"
+end box
+
+box Consumer EDC #ConsumerColor
+    participant CCP as "Control Plane" #Business
+end box
+
+box Provider EDC #ProviderColor
+    participant PCP as "Control Plane" #Business
+end box
+
+box "Provider ecosystem" #ProviderColor
+    participant PBE as "Backend Service"
+end box
+
+title
+ **Service Provisioning**
+end title
+autonumber 1
+== Initialization ==
+
+activate CCP
+CCP ->> PCP : initiate data transfer (see `TransferProcessApiController`)\n `DataRequest` has dest. type `HttpProvision`
+activate PCP
+PCP ->> PBE : request of instance creation
+activate PBE
+PBE->>PBE: creating instance
+activate PBE
+PBE->>PCP: provide credentials for accessing instance
+PCP->>CCP: forward information
+activate CBE
+CCP->>CBE: receive access information
+deactivate CCP
+
+== Working ==
+
+CBE->>PBE: request
+PBE->>CBE: answer
+
+== End of contract ==
+PCP->>PBE: service contract not valid anymore
+PBE->>PBE: deprovision instance
+deactivate PBE
+
+
+@enduml

@@ -12,8 +12,9 @@ RUN pip3 --disable-pip-version-check --no-cache-dir install \
 WORKDIR /opt/k8s-api
 COPY __init__.py __init__.py
 COPY middlelayer middlelayer
-COPY resources /opt/resources
 
 EXPOSE 8888
 
-CMD ["uvicorn","middlelayer.main:app","--workers=4", "--host=0.0.0.0","--port=8888"]
+# CMD ["middlelayer.service_api:service_api --workers=4 --host=0.0.0.0 --port=8888"]
+# "--workers=4",
+CMD ["uvicorn", "middlelayer.service_api:service_api","--host=0.0.0.0","--port=8888"]
