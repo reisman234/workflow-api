@@ -12,6 +12,9 @@ from middlelayer.models import MinioStoreInfo
 from datetime import timedelta
 import sys
 
+KB = 1024
+MB = 1024*KB
+
 
 class ImlaMinio():
 
@@ -108,6 +111,28 @@ class ImlaMinio():
         finally:
             response.close()
             response.release_conn()
+
+    def put_file(self,
+                 bucket,
+                 resource,
+                 file):
+
+        self.client.put_object(
+            bucket_name=bucket,
+            object_name=resource,
+            data=file.file,
+            length=-1,
+            part_size=64*MB)
+
+    def get_file(self,
+                 bucket,
+                 resource):
+
+        response = self.client.get_object(
+            bucket_name=bucket,
+            object_name=resource)
+
+        return response
 
     def get_objects_list(self, bucket, prefix=None):
         objects = self.client.list_objects(bucket_name=bucket,

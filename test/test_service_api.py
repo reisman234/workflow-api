@@ -1,6 +1,6 @@
 from unittest import TestCase
 from unittest.mock import patch, MagicMock, Mock
-
+from io import BytesIO
 
 from fastapi.testclient import TestClient
 
@@ -106,7 +106,7 @@ class TestServiceApi(TestCase):
                 f"/services/{self.test_service_id}/input/invalid",
                 headers=self.headers,
                 follow_redirects=False,
-                files={"input": b"data"})
+                files={"input_file": b"data"})
 
             self.assertTrue(response.is_client_error)
             self.assertEqual(response.status_code,
@@ -118,18 +118,16 @@ class TestServiceApi(TestCase):
                 patch("middlelayer.service_api.ImlaMinio") as mock_storage_backend,\
                 TestClient(service_api) as test_client:
 
-            mock_storage_instance = mock_storage_backend.return_value
-            mock_storage_instance.get_upload_url.return_value = "https://fake_storage"
+            mock_storage_instance: MagicMock = mock_storage_backend.return_value
 
             response = test_client.put(
                 f"/services/{self.test_service_id}/input/test_res_in",
                 headers=self.headers,
                 follow_redirects=False,
-                files={"input": b"data"})
+                files={"input_file": b"data"})
 
-            self.assertTrue(response.is_redirect)
-            self.assertEqual(response.next_request.url,
-                             "https://fake_storage")
+            self.assertTrue(response.is_success)
+            mock_storage_instance.put_file.assert_called_once()
 
     def test_get_service_output_info_missing_auth(self):
 
@@ -177,7 +175,16 @@ class TestServiceApi(TestCase):
                 response.json()["detail"], "requested resource not exists")
 
     def test_get_service_output_info_valid_resource(self):
-        # TODO
+
+        fake_content = b"test"
+        fake_file = BytesIO()
+        fake_file.write(fake_content)
+        fake_file.seek(0)
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = fake_file.read()
+        mock_response.header = {"Content-Type": "application/plain", "Content-Length": "4"}
+
         test_resource_storage_name = f"{self.test_service_id}/outputs/test_res_out"
 
         # mock_storage_backend.get_upload_url.return_value = "fake_upload_url"
@@ -189,15 +196,14 @@ class TestServiceApi(TestCase):
             mock_storage_instance = mock_storage_backend.return_value
             mock_storage_instance.get_objects_list.return_value = [
                 test_resource_storage_name]
-            mock_storage_instance.get_download_url.return_value = "https://fake_storage.org"
+            mock_storage_instance.get_file.return_value = mock_response
 
             response = test_client.get(
                 f"/services/{self.test_service_id}/output/test_res_out",
-                headers=self.headers,
-                follow_redirects=False)
-            self.assertTrue(response.is_redirect)
-            self.assertEqual(response.next_request.url,
-                             "https://fake_storage.org")
+                headers=self.headers)
+
+            self.assertTrue(response.is_success)
+            self.assertEqual(response.content, fake_content)
 
     def test_post_start_service_workflow_with_insufficient_resource(self):
 
@@ -347,7 +353,8 @@ class TestServiceApi(TestCase):
             mock_storage_backend.assert_called_once()
 
             mock_workflow_instance.get_status.assert_called_once_with(
-                workflow_id=workflow_id)
+                workflow_id=workflow_id,
+                verbose_level=0)
 
     def test_post_stop_service_workflow_missing_auth(self):
 
@@ -429,7 +436,7 @@ class TestServiceApi(TestCase):
             mock_workflow_backend.assert_called_once()
             mock_storage_backend.assert_called_once()
 
-            mock_workflow_instance.stop_workflow.assert_called_once_with(
+            mock_workflow_instance.cleanup.assert_called_once_with(
                 workflow_id=workflow_id)
 
     def test_service_api_commit_workflow(self):

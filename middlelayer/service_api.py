@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from threading import Thread
 from uuid import uuid4
 
-from fastapi import FastAPI, Depends, HTTPException, Security, Body
-from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
+from fastapi import FastAPI, Depends, HTTPException, Security, Body, UploadFile, File
+from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse, Response
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 
@@ -38,7 +38,7 @@ workflow_api_logger.addHandler(stdout_handle)
 # CONFIGURATION
 ###############
 
-CONFIG_FILE_PATH = os.environ["CONFIG_FILE_PATH"]
+CONFIG_FILE_PATH = os.environ.get("CONFIG_FILE_PATH", "./config/workflow-api.cfg")
 
 workflow_api_logger.debug("load config file %s", {CONFIG_FILE_PATH})
 
@@ -161,6 +161,8 @@ class ServiceApi():
 
         if WORKFLOW_API_CONFIG.get("workflow_backend") == "kubernetes":
             self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
+                kubeconfig=WORKFLOW_API_CONFIG.get(
+                    "workflow_backend_kubeconfig"),
                 namespace=WORKFLOW_API_CONFIG.get(
                     "workflow_backend_namespace"),
                 image_pull_secret=WORKFLOW_API_CONFIG.get(
@@ -174,7 +176,7 @@ class ServiceApi():
 
         return description
 
-    def generate_resource_upload_url(self, service_id: str, resource_name: str):
+    def put_resource(self, service_id: str, resource_name: str, resource_file: UploadFile):
         service_description = self.get_service_description(service_id)
 
         # check resource_name is a valid input
@@ -182,13 +184,12 @@ class ServiceApi():
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST, detail="no valid resource provided")
 
-        # generate minio presigned put url
-        upload_url = self.storage.get_upload_url(
-            WORKFLOW_API_USER_STORAGE,
-            f"{service_id}/inputs/{resource_name}")
-        return {"url": upload_url, "method": "put"}
+        self.storage.put_file(
+            bucket=WORKFLOW_API_USER_STORAGE,
+            resource=f"{service_id}/inputs/{resource_name}",
+            file=resource_file)
 
-    def generate_resource_download_url(self, service_id, resource_name):
+    def get_resource(self, service_id, resource_name):
         service_description = self.get_service_description(service_id)
         resource_storage_prefix = f"{service_id}/outputs"
         resource_storage_name = f"{resource_storage_prefix}/{resource_name}"
@@ -207,16 +208,10 @@ class ServiceApi():
                 detail="requested resource not exists"
             )
 
-        # generate minio presigned put url
-        downlaod_url = self.storage.get_download_url(
-            WORKFLOW_API_USER_STORAGE,
+        return self.storage.get_file(
+            bucket=WORKFLOW_API_USER_STORAGE,
             resource=resource_storage_name
         )
-
-        # is a adaption of the url required? e.g. proxy information
-        # is a redirection better?
-
-        return {"url": downlaod_url, "method": "get"}
 
     def service_inputs_exists(self, service_id: str):
         service_description = self.get_service_description(service_id)
@@ -351,30 +346,74 @@ async def get_service_info(service_id: str):
 #     return resource_upload
 
 
+# @service_api.put("/services/{service_id}/input/{resource}")
+# async def get_service_input_info(service_id: str,
+#                                  resource: str,
+#                                  input_file: bytes = Body(..., media_type="text/plain")):
+#     # pylint: disable=W0613
+
+#     """
+#     Uploads a file into the user storage
+#     """
+
+#     resource_upload = client.generate_resource_upload_url(service_id,
+#                                                           resource)
+#     return RedirectResponse(url=resource_upload["url"])
+
+
+# @service_api.get("/services/{service_id}/output/{resource}")
+# async def get_service_output_info(service_id: str, resource: str):
+#     """
+#     return a download url for the specified resource
+#     """
+
+#     resource_download_info = client.generate_resource_download_url(service_id,
+#                                                                    resource)
+#     return RedirectResponse(url=resource_download_info["url"])
+
 @service_api.put("/services/{service_id}/input/{resource}")
-async def get_service_input_info(service_id: str,
+async def put_service_input_info(service_id: str,
                                  resource: str,
-                                 input_file: bytes = Body(..., media_type="text/plain")):
+                                 input_file: UploadFile = File(...)):
     # pylint: disable=W0613
 
     """
-    Uploads a file into the user storage
+    upload service specific file into the user storage
     """
+    resource_upload = client.put_resource(
+        service_id=service_id,
+        resource_name=resource,
+        resource_file=input_file)
 
-    resource_upload = client.generate_resource_upload_url(service_id,
-                                                          resource)
-    return RedirectResponse(url=resource_upload["url"])
+    return {}
 
 
 @service_api.get("/services/{service_id}/output/{resource}")
 async def get_service_output_info(service_id: str, resource: str):
     """
-    return a download url for the specified resource
+    download a generated result file from the user storage
     """
+    KB = 1024
+    response = None
+    try:
+        response = client.get_resource(service_id,
+                                       resource)
 
-    resource_download_info = client.generate_resource_download_url(service_id,
-                                                                   resource)
-    return RedirectResponse(url=resource_download_info["url"])
+        # Set the Content-Disposition header so the browser
+        # knows to download the file instead of displaying it
+        headers = {}
+        headers["content-type"] = response.headers.get("Content-Type")
+        headers["content-length"] = response.headers.get("Content-Length")
+        # headers["transfer-encoding"] = "chunked"
+        headers["content-disposition"] = f"attachment"
+
+        return Response(
+            content=response.read(),
+            headers=headers)
+    finally:
+        if response:
+            response.close()
+            response.release_conn()
 
 
 @service_api.get("/services/{service_id}/workflow/")

@@ -134,11 +134,13 @@ class K8sWorkflowBackend(WorkflowBackend):
 
     def __init__(self,
                  namespace,
+                 kubeconfig=None,
                  image_pull_secret=None):
         self.dummy_db = SimpleDB()
         self.namespace = namespace
 
         k8s_setup_config(
+            config_file=kubeconfig,
             image_pull_secret=image_pull_secret)
 
     def handle_input(self, workflow_id: str, input_resource: ServiceResouce, get_data_handle: Callable):

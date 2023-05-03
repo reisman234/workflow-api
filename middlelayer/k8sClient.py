@@ -19,6 +19,7 @@ class K8sContainerStateDate(BaseModel):
 class K8sPodStateData(BaseModel):
     event_type: str
     pod_phase: str
+    pod_state_condition: Union[List[str], None]
     container_statuses: Union[Dict[str, K8sContainerStateDate], None]
 
 
@@ -27,8 +28,11 @@ IMAGE_PULL_SECRET = "imla-registry"
 
 
 def k8s_setup_config(config_file=None, image_pull_secret=None):
-    # if os.path.isfile(KUBE_CONFIG_FILE):
-    config.load_kube_config(config_file=config_file)
+    if config_file:
+        # load a specific config_file
+        config.load_kube_config(config_file=config_file)
+    else:
+        config.load_config()
 
     if image_pull_secret:
         global IMAGE_PULL_SECRET
@@ -204,9 +208,11 @@ def k8s_watch_pod_events(pod_name, pod_state_handle, namespace=NAMESPACE):
                 for x in event['object'].status.container_statuses:
                     container_states[x.name] = get_container_state(x.state)
 
+            # TODO add pod state condition
             pod_state = K8sPodStateData(
                 event_type=event['type'],
                 pod_phase=event['object'].status.phase,
+                pod_state_condition=[condition.to_str() for condition in event['object'].status.conditions],
                 container_statuses=container_states)
 
             can_exit = pod_state_handle(pod_state)

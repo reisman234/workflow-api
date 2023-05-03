@@ -46,7 +46,7 @@ class TestK8sClient(TestCase):
 
     def setUp(self) -> None:
         # loads $
-        k8s_setup_config()
+        k8s_setup_config(config_file="/home/ralph/.kube/minikube.config")
         self.test_config_map_name = "test-cm"
 
         self.workflow_resource = WorkflowResource(
