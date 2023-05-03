@@ -13,8 +13,6 @@ WORKDIR /opt/k8s-api
 COPY __init__.py __init__.py
 COPY middlelayer middlelayer
 
-EXPOSE 8888
+EXPOSE 8080
 
-# CMD ["middlelayer.service_api:service_api --workers=4 --host=0.0.0.0 --port=8888"]
-# "--workers=4",
-CMD ["uvicorn", "middlelayer.service_api:service_api","--host=0.0.0.0","--port=8888"]
+CMD uvicorn middlelayer.service_api:service_api --host=0.0.0.0 --port=8080 --root-path=/uuid/workflow-api
