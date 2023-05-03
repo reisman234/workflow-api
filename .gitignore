@@ -5,3 +5,5 @@ config/*.conf
 config/*.cfg
 
 k8s/secrets
+
+tmp/

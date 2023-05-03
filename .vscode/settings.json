@@ -1,4 +1,6 @@
 {
+
+    "python.linting.pylintEnabled": false,
     "python.linting.ignorePatterns": [
         "**/site-packages/**/*.py",
         ".vscode/*.py"
@@ -15,4 +17,5 @@
     ],
     "python.testing.pytestEnabled": false,
     "python.testing.unittestEnabled": true
+
 }
