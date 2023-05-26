@@ -13,6 +13,8 @@ WORKDIR /opt/k8s-api
 COPY __init__.py __init__.py
 COPY middlelayer middlelayer
 
+ENV FASTAPI_ROOT_PATH=/
+
 EXPOSE 8080
 
-CMD uvicorn middlelayer.service_api:service_api --host=0.0.0.0 --port=8080 --root-path=/uuid/workflow-api
+CMD uvicorn middlelayer.service_api:service_api --host=0.0.0.0 --port=8080 --root-path=${FASTAPI_ROOT_PATH}

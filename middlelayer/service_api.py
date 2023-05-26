@@ -50,7 +50,7 @@ if not CONFIG.has_section("workflow_api"):
 WORKFLOW_API_CONFIG = CONFIG["workflow_api"]
 
 WORKFLOW_API_USER = WORKFLOW_API_CONFIG.get("workflow_api_user")
-WORKFLOW_API_ACCESS_TOKEN = WORKFLOW_API_CONFIG.get("WORKFLOW_API_ACCESS_TOKEN")
+WORKFLOW_API_ACCESS_TOKEN = WORKFLOW_API_CONFIG.get("workflow_api_access_token")
 WORKFLOW_API_USER_STORAGE = WORKFLOW_API_USER+"-storage"
 
 if not CONFIG.has_section("minio"):
@@ -63,7 +63,7 @@ MINIO_CONFIG = CONFIG["minio"]
 ##########
 
 
-api_key_header = APIKeyHeader(name="access_token", auto_error=False)
+api_key_header = APIKeyHeader(name="access-token", auto_error=False)
 
 
 async def get_api_key(api_key: str = Security(api_key_header)):
@@ -74,7 +74,8 @@ async def get_api_key(api_key: str = Security(api_key_header)):
             status_code=HTTP_403_FORBIDDEN, detail="Could not validate API KEY"
         )
 
-service_api = FastAPI(dependencies=[Depends(get_api_key)])
+workflow_api_logger.debug("set root_path=%s", os.getenv("FASTAPI_ROOT_PATH"))
+service_api = FastAPI(root_path=os.getenv("FASTAPI_ROOT_PATH"), dependencies=[Depends(get_api_key)])
 
 ##########
 # DATABASE

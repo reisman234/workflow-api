@@ -54,7 +54,7 @@ def k8s_create_pod_manifest(job_uuid,
     container = client.V1Container(
         name="worker",
         image=job_config.worker_image,
-        image_pull_policy="Always",
+        image_pull_policy="IfNotPresent",
         # args=["entrypoint.sh"],
         # command=["/bin/bash"],
     )
