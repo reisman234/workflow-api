@@ -81,7 +81,7 @@ def k8s_create_pod_manifest(job_uuid,
         image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/data-side-car:latest",
         # command=["/bin/sh"],
         # tty=True,
-        image_pull_policy="Never",  # TODO REMOVE
+        # image_pull_policy="Never",  # TODO REMOVE
     )
 
     if job_config.worker_image_output_directory:
