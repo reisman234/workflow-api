@@ -16,9 +16,10 @@ class TestServiceApi(TestCase):
     def setUp(self) -> None:
         # TODO does not work?
         # self.client = TestClient(service_api)
-        self.headers = {"access_token": "pass"}
+        self.headers = {"access-token": "pass"}
         testee_mod.SERVICES.clear()
         testee_mod.SERVICES["test_service"] = {"test_id": "service_info"}
+        testee_mod.WORKFLOW_API_ACCESS_TOKEN = "pass"
 
         self.storage_bucket = "test_bucket"
 
