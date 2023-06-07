@@ -1,49 +1,55 @@
-# gx4ki-middleware
+# Workflow API
 
+This is the repository for the workflow-api project.
+It provides a simple single user interface to manage compute jobs and related data in a specified workflow backend.
 
-This is the python middleware for gx4ki.
-It consists currently of 2 modules, which is responsible for the execution of specific jobs in a in a k8s environment.
+At the moment a very simple workflow backend is implemented to manage compute jobs in K8s.
+To manage the user data the workflow api relies on a [Minio storage backend][1], which needs to be deployed separately.
 
-## Middleware k8s_client
+## Compute Assets
 
-The first module (main.py) implements a k8s_client and manges k8s resources in a backend cluster.
-The module is able to create and delete Pods and ConfigMaps.
-A Job is a User-specific workload which can currently defined by an environment file, which holds information of the used container image (WORKER_IMAGE) of the job, the information if a GPU (GPU) is required and the information where the result is stored (RESULT_DIRECTORY)
-Additional runtime information for the worker image can be provided by environment files, from which configmaps are created and tied to to job-job as a env-ref.
+The structure of the API focusing on so called compute assets which the user can manage.
+In the simplest form the compute asset consists of a app, wich is the container to run, the hardware requirements (at the moment just GPU (YES/NO)) and the in- and output resources.
 
-The k8s_client is currently a prototype for deploying a user-specific job defined by it's job-config and a optional runtime configurations.
-At the moment, the processing a job is very strict implemented and processed in a single call (demo-call).
-During that singel call it ...:
-1. creates optional config maps from .env files
-2. creates pod manifests
-3. deploys the pod
-4. waits for the termination of the WORKER_IMAGE
-5. stores result files to S3 Storage
+> **_Note:_** Compute asses currently called `services` in the api
 
+The compute assets are resources predefined by the workflow administrator that are made available to consumers.
+First, the compute asset must be defined, i.e. it is first determined which container is executed with which resources.
+In addition, input resources such as source files or environments are defined, with which the execution is adapted to a certain degree to the requirements of the consumer.
+Finally, the compute asset must be assigned an asset ID with which it is registered in the EDC Connector.
 
-## Middleware entrypoint
-
-The second module is the middleware_entrypoint (entrypoint.py) which is for the moment of time a simple interface to trigger a specific job in the k8s_client.
-Depending on the call it reads the job description and the job related environment file, located at [resources](./resources/), and builds the request for the k8s_client.
-In addition, this module implements the provision functionally of an EDC-Connector, therefore it can be used as an provisioner-backend from such an connector.
+> **_Note:_** (Feature -- NOT Implemented) Extended Compute Assets are a special kind in which it is allowed to upload and specify the own App/Container
 
 
 ## API
 
-For testing purpose ever function against the k8s-cluster has its on minimal api endpoint.
-To test the individual endpoints use the [api-collection (thundercliend)](./test/resources/thunder-collection_imla-k8s-api.json)
+The following image shows the modules and components which are involved in the workflow-api.
+![Workflow-API](./docs/middlelayer-workflow-api.png)
+
+The Workflow API itself consists of an API which is the interface for the user interaction. An external S3StorageBackend Component, which is covered by a Minio deployment and stores the input and output data for an worker image. The third module is the K8sWorkflowBackend, which does the communication with the backend K8s cluster, to deployment, monitoring and cleanup of WorkflowJobs
+
+The WorkflowJob is a running Pod inside the Cluster, which is processing a long running task or some interactive job.
+The main part of such a job is a worker-image, which is a container image with a predefined application and provides maybe some configuration options to change the behavior of the application.
+E.g. in case of a Pytorch trainings pipeline, environment variables or source scripts to change the training for the need of the consumer.
+The `data-side-car` module is also a container image, which responsible to store the result data back to to consumers persistent storage, after the worker-image has finished.
+
+> **_Note:_** interactive jobs currently not implemented.
 
 ---
+
 ## Demo Deployment
 
+At the moment the deployment of the workflow-api is a little complex because of the components which relies on, as described above.
+To make it a little easy there is a docker-compose script to run the WorkflowApi and a Minio Storage locally besides local minikube cluster.
 
-### Build Middleware Container
 
-The final container Contains k8s_client and mw_entrypoint module
+### Prerequisite
 
-```shell
-docker build --no-cache --pull -t  harbor.gx4ki.imla.hs-offenburg.de/gx4ki/imla-k8s-client:latest .
-```
+- k8s-cluster (minkube tested in local environment)
+  - check your minikube ip `minikube ip` adapt the ip config in [docker-compose](./docker-compose.yaml) file.
+- docker
+- docker-compose
+
 
 ### Deployment
 
@@ -140,6 +146,8 @@ The following picture shows that concept.
 
 
 
+
+
 ---
 
 ## Developer Topics
@@ -173,3 +181,7 @@ what have I tried so far:
 - use kubernetes-python client and stream the data via stdout out of the container by executing `cat resultfile`
   - rosbag file (binary file) is somehow changed by transfer
 - create kubernetes-python client equivalent to `kubectl cp` (-> internally it's a kube exec with tar cf | tar xf )
+
+## Reference
+
+[1]: https://min.io/
