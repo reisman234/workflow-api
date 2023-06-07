@@ -1,8 +1,6 @@
 version: "3"
 services:
 
-  # TODO service_api
-
   workflow-storage:
     image: quay.io/minio/minio
     container_name: workflow-storage
@@ -18,28 +16,24 @@ services:
       - MINIO_ROOT_USER=root
       - MINIO_ROOT_PASSWORD=changeme123
       - TZ=Europe/Berlin
-      # - MINIO_BROWSER_REDIRECT_URL=http://localhost/uuid/storage-web
-    network_mode: host
+    networks:
+      minikube:
+        ipv4_address: 192.168.49.6
+        aliases:
+          - "workflow-storage"
 
   workflow-api:
     image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/workflow-api:latest
     container_name: workflow-api
     volumes:
-      - ./config/workflow-api.local.cfg:/opt/k8s-api/config/workflow-api.cfg
+      - ./config/workflow-api.cfg:/opt/k8s-api/config/workflow-api.cfg
       - ./config/minikube.kubeconfig:/root/.kube/config
-    # network_mode: host
+    networks:
+      minikube:
+        ipv4_address: 192.168.49.5
+        aliases:
+          - "workflow-api"
 
-  nginx:
-    image: nginx
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-
-  data-side-car:
-    image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/data-side-car:latest
-    container_name: data-side-car
-    ports:
-      - 9999:9999
-    profiles:
-      - "data-side-car"
+networks:
+  minikube:
+    external: true
