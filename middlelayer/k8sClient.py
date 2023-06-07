@@ -26,8 +26,10 @@ class K8sPodStateData(BaseModel):
 NAMESPACE = "default"
 IMAGE_PULL_SECRET = "imla-registry"
 
+DATA_SIDE_CAR_IMAGE = "imlahso/data-side-car:latest"
 
-def k8s_setup_config(config_file=None, image_pull_secret=None):
+
+def k8s_setup_config(config_file=None, image_pull_secret=None, data_side_car_image=None):
     if config_file:
         # load a specific config_file
         config.load_kube_config(config_file=config_file)
@@ -37,6 +39,10 @@ def k8s_setup_config(config_file=None, image_pull_secret=None):
     if image_pull_secret:
         global IMAGE_PULL_SECRET
         IMAGE_PULL_SECRET = image_pull_secret
+
+    if data_side_car_image:
+        global DATA_SIDE_CAR_IMAGE
+        DATA_SIDE_CAR_IMAGE = data_side_car_image
 
 
 def k8s_get_healthz():
@@ -78,10 +84,10 @@ def k8s_create_pod_manifest(job_uuid,
 
     side_car = client.V1Container(
         name="data-side-car",
-        image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/data-side-car:latest",
+        image=DATA_SIDE_CAR_IMAGE,
+        image_pull_policy="IfNotPresent"
         # command=["/bin/sh"],
         # tty=True,
-        # image_pull_policy="Never",  # TODO REMOVE
     )
 
     if job_config.worker_image_output_directory:

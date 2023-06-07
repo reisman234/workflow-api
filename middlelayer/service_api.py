@@ -162,12 +162,10 @@ class ServiceApi():
 
         if WORKFLOW_API_CONFIG.get("workflow_backend") == "kubernetes":
             self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
-                kubeconfig=WORKFLOW_API_CONFIG.get(
-                    "workflow_backend_kubeconfig"),
-                namespace=WORKFLOW_API_CONFIG.get(
-                    "workflow_backend_namespace"),
-                image_pull_secret=WORKFLOW_API_CONFIG.get(
-                    "workflow_backend_image_pull_secret"))
+                kubeconfig=WORKFLOW_API_CONFIG.get("workflow_backend_kubeconfig"),
+                namespace=WORKFLOW_API_CONFIG.get("workflow_backend_namespace"),
+                image_pull_secret=WORKFLOW_API_CONFIG.get("workflow_backend_image_pull_secret"),
+                data_side_car_image=WORKFLOW_API_CONFIG.get("workflow_backend_data_side_car_image"))
 
     def get_service_description(self, service_id: str) -> ServiceDescription:
         description = SERVICE_DESCRIPTIONS.get(service_id)
