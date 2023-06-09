@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse,
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 
+from middlelayer.asset import StaticAssetLoader
 from middlelayer.imla_minio import ImlaMinio
 from middlelayer.models import ServiceDescription, WorkflowResource, WorkflowStoreInfo
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
@@ -81,54 +82,8 @@ service_api = FastAPI(root_path=os.getenv("FASTAPI_ROOT_PATH"), dependencies=[De
 # DATABASE
 ##########
 
-SERVICE_ID_CARLA = "carla"
-SERVICE_DESCRIPTION_CARLA = {
-    "service_id": SERVICE_ID_CARLA,
-    "inputs":  [{"resource_name": "env", "type": 1, "description": "List of environment Variables for Carla Container"}],
-    "outputs": [{"resource_name": "rosbag", "type": 2, "description": "Generated rosbag file from .env file"}],
-    "workflow_resource": WorkflowResource(worker_image="harbor.gx4ki.imla.hs-offenburg.de/gx4ki/carla:latest",
-                                          worker_image_output_directory="/home/carla/rosbag",
-                                          gpu=True)}
+asset_store = StaticAssetLoader()
 
-SERVICE_ID_DUMMY = "dummy"
-SERVICE_DESCRIPTION_DUMMY = {
-    "service_id": SERVICE_ID_DUMMY,
-    "inputs":  [{"resource_name": "env", "type": 1, "description": "List of environment Variables for dummy-job Container"}],
-    "outputs": [{"resource_name": "result", "type": 2, "description": "dummy output file"}],
-    "workflow_resource": WorkflowResource(worker_image="harbor.gx4ki.imla.hs-offenburg.de/ralphhso/dummy-job:latest",
-                                          worker_image_output_directory="/output/",
-                                          gpu=False)}
-
-SERVICE_ID_NGINX = "nginx"
-SERVICE_DESCRIPTION_NGINX = {
-    "service_id": SERVICE_ID_NGINX,
-    "inputs":  [],
-    "outputs": [],
-    "workflow_resource": WorkflowResource(worker_image="nginx:latest",
-                                          worker_image_output_directory=None,
-                                          gpu=False)}
-
-
-service_description_carla = ServiceDescription(**SERVICE_DESCRIPTION_CARLA)
-service_description_dummy = ServiceDescription(**SERVICE_DESCRIPTION_DUMMY)
-service_description_nginx = ServiceDescription(**SERVICE_DESCRIPTION_NGINX)
-
-SERVICE_DESCRIPTIONS = {SERVICE_ID_CARLA: service_description_carla,
-                        SERVICE_ID_DUMMY: service_description_dummy,
-                        SERVICE_ID_NGINX: service_description_nginx}
-
-SERVICES = {
-    "services": {
-        SERVICE_ID_CARLA: {
-            "start_date": datetime.now(),
-            "end_date:": datetime.now() + timedelta(days=7)
-        },
-        SERVICE_ID_DUMMY: {
-            "start_date": datetime.now(),
-            "end_date:": datetime.now() + timedelta(days=7)
-        },
-    }
-}
 
 user_workflow: Dict[str, List[str]] = {}
 
@@ -168,7 +123,7 @@ class ServiceApi():
                 data_side_car_image=WORKFLOW_API_CONFIG.get("workflow_backend_data_side_car_image"))
 
     def get_service_description(self, service_id: str) -> ServiceDescription:
-        description = SERVICE_DESCRIPTIONS.get(service_id)
+        description = asset_store.get_assets_description(service_id)
         if description is None:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST, detail="no valid service_id")
@@ -318,7 +273,7 @@ async def get_services():
     """
     list available services
     """
-    return SERVICES
+    return asset_store.get_assets()
 
 
 @service_api.get("/services/{service_id}/info")

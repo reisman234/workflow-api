@@ -40,18 +40,61 @@ The `data-side-car` module is also a container image, which responsible to store
 ## Demo Deployment
 
 At the moment the deployment of the workflow-api is a little complex because of the components which relies on, as described above.
-To make it a little easy there is a docker-compose script to run the WorkflowApi and a Minio Storage locally besides local minikube cluster.
-
+To make it a little easy there is a docker-compose script to run the WorkflowApi and a Minio Storage locally besides a local minikube cluster.
+But there are some prerequisites which needs to be addressed bevor we can deploy and run the workflow-api.
 
 ### Prerequisite
 
 - k8s-cluster (minkube tested in local environment)
-  - check your minikube ip `minikube ip` adapt the ip config in [docker-compose](./docker-compose.yaml) file.
+  - check your minikubes cluster ip with `minikube ip` adapt the ip config in [docker-compose](./docker-compose.yaml) file.
 - docker
 - docker-compose
 
+### Configuration
 
-### Deployment
+1. Create `workflow-api.cfg`, by copying the prepared local config file `cp ./config/workflow-api.demo.cfg ./config/workflow-api.cfg`
+2. Create the demo namespace: `kubectl create namespace gx4ki-demo`
+3. Create the ServiceAccount `workflow-api-service-account` for the workflow-api  `kubectl -n gx4ki-demo apply -f k8s/gx4ki-sa-auth.yaml`
+4. Prepare the kubeconfig file:
+   1. Copy the template `cp config/kube/config.tmpl config/kube/config`
+   2. Get the Token for the created ServiceAccount (`{GX4KI_API_SERVICE_ACCOUNT_TOKEN}`): <br>
+      `kubectl -n gx4ki-demo get secret $(kubectl -n gx4ki-demo get serviceaccounts workflow-api-service-account -o jsonpath={.secrets[0].name}) -o jsonpath={.data.token} | base64 -d`
+   3. Get the Cluster CA certificate (`{MINIKUBE_CA_CRT}`): <br>
+      `kubectl -n gx4ki-demo get secret $(kubectl -n gx4ki-demo get serviceaccounts workflow-api-service-account -o jsonpath={.secrets[0].name}) -o jsonpath={.data.'ca\.crt'}`
+   4. Get the Clusters IP (`{MINIKUBE_IP}`): <br>
+      `minikube ip`
+   5. Check the if the kubeconfig works, by running and deleting a pod. <br>
+      1. Run a pod:
+          ```bash
+          kubectl --kubeconfig config/kube/config -n gx4ki-demo run test --image=alpine -- sh
+          ```
+      2. Delete the pod:
+         ```bash
+         kubectl --kubeconfig config/kube/config -n gx4ki-demo delete pod test
+         ```
+5. (Optional) If you want to pull all the required images from a private registry, prepare and provide to the namespace the image pull secret.
+The images for dummy-worker (`imlahso/dummy-job:latest`) and also the required data-side-car (`imlahso/data-side-car:latest`) are public available.
+
+### Build and Deploy the Workflow-API
+
+- Build and run the workflow-api via `docker-compose`: <br>
+  `docker-compose up --build`
+
+The workflow-api and the storage backend should now be build and starting.
+The api itself should print the fooling lines:
+
+```sh
+workflow-api        | 2023-06-09 09:06:59,235 - workflow_api - DEBUG - load config file {'./config/workflow-api.cfg'}
+workflow-api        | 2023-06-09 09:06:59,236 - workflow_api - DEBUG - set root_path=/
+workflow-api        | INFO:     Started server process [1]
+workflow-api        | INFO:     Waiting for application startup.
+workflow-api        | INFO:     Application startup complete.
+workflow-api        | INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+```
+
+The API should now be available unter the configured `WORKFLOW_API_IP`, e.g. `http://192.168.49.5:8080`, if the minikube network has not changed.
+To test request against the api go to the `/docs` subpath and use the openapi ui.
+Analog to that the web ui for the minio should be available at `http://192.168.49.6:9090`.
 
 
 **Deploy k8s_client**

@@ -1,0 +1,19 @@
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: {MINIKUBE_CA_CERT}
+    server: https://{MINIKUBE_IP}:8443
+  name: minikube
+contexts:
+- context:
+    cluster: minikube
+    namespace: gx4ki-demo
+    user: gx4ki-api
+  name: minikube
+current-context: minikube
+kind: Config
+preferences: {}
+users:
+- name: gx4ki-api
+  user:
+    token: {GX4KI_API_SERVICE_ACCOUNT_TOKEN}

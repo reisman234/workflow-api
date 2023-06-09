@@ -1,0 +1,22 @@
+{
+    "service_id": "dummy",
+    "inputs": [
+        {
+            "resource_name": "env",
+            "type": 1,
+            "description": "List of environment Variables for dummy-job Container"
+        }
+    ],
+    "outputs": [
+        {
+            "resource_name": "result",
+            "type": 2,
+            "description": "dummy output file"
+        }
+    ],
+    "workflow_resource": {
+        "worker_image": "imlahso/dummy-job:latest",
+        "worker_image_output_directory": "/output/",
+        "gpu": false
+    }
+}

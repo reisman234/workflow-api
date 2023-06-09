@@ -23,11 +23,13 @@ services:
           - "workflow-storage"
 
   workflow-api:
-    image: harbor.gx4ki.imla.hs-offenburg.de/gx4ki/workflow-api:latest
+    build: .
+    image: gx4ki/workflow-api:latest
     container_name: workflow-api
     volumes:
       - ./config/workflow-api.cfg:/opt/k8s-api/config/workflow-api.cfg
-      - ./config/minikube.kubeconfig:/root/.kube/config
+      - ./config/kube/config:/root/.kube/config
+      - ./config/assets:/opt/k8s-api/assets
     networks:
       minikube:
         ipv4_address: 192.168.49.5
