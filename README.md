@@ -97,73 +97,6 @@ To test request against the api go to the `/docs` subpath and use the openapi ui
 Analog to that the web ui for the minio should be available at `http://192.168.49.6:9090`.
 
 
-**Deploy k8s_client**
-
-To run the the k8s_client in the Kubernetes some preconditions are required.
-1. Apply the service Account: `kubectl apply -f k8s/gx4ki-sa-auth.yaml`
-2. Create a middleware config `cp config/middlelayer.conf.tmpl config/middlelayer.conf`
-   - provide the required configurations options
-   - and apply the secret
-3. if necessary create and apply an registry-secret
-4. deploy the k8s client into the cluster or run it as a standalone container (requries a kubeconfig file)
-
-
-```shell
-docker run -it --rm --name k8s-client \
--v $(pwd)/config/minikube.kubeconfig:/opt/k8s-api/config/kubeconfig \
--v $(pwd)/config/middlelayer.conf:/opt/k8s-api/config/middlelayer.conf \
---network minikube \
---ip 192.168.49.5 \
-gx4ki/imla-k8s-api
-```
-
-**Deploy Middleware Entrypoint**
-
-Deploy a standalone mw_entrypoint with the provided docker-compose file.
-
-```shell
-docker-compose -f docker-compose.entrypoint.yaml up
-```
-
-### Work Items
-
-- **DONE** create ServiceAccount which deploys jobs into a specifc namespace
-- **DONE** create ConfigMaps from env-file and use it in jobs
-- **POSTPONED**how to get dotenv-file from outside to imla-api? [comunication-overview](./docs/edc-dotenv-transfer.excalidraw)
-  - dotenv-file and job-config files read from local directory
-- **DONE** adapt job to carla
-- **FAIL** download result files directly to imla-k8s-client -- rosbag file changed during transfer()
-- **DONE** upload result files to minio
-  - **DONE** get resultfile from minio and send it as response
-- **DONE** deploy k8s-api in gx4ki-cluster
-- test with connector
-  - **FAIL** timeout problems after trigger carle and wait for result.
-    - there is a provider provision tate in the in the workflow of the transfer.
-      This state works with webhooks and callbacks which enables to process a long running job, bevor the data is ready.
-      This functionality facilitates the gx4ki-middlelayer to deploy a long running job into.
-      After the job finishes the callback communicates to the connector where the result data can be fetched.
-  - **DONE** Implement provision handler in entrypoint
-
-
-### Demo Use-Case
-
-Carla-Demo V0.1
-
-Run all in once:
-1. trigger job in provison phase of connector
-
-2. trigger job execution with job-config and dotenv-file
-    - create configmap from dotenv-file
-    - deploy job in cluster
-    - wait for finish
-    - store rosbag result
-
-3. post callback to connector with storage information
-4. data transfer from minio over connector to datasink
-
-![middlelayer-overview](./docs/middlelayer-overview.png)
-
-
 ### Discussion
 
 **Compute-/Service-Provider**
@@ -184,14 +117,15 @@ The following picture shows that concept.
 6. execute and observe service/job
   - state of executions (callback or polled by data-consumer)
 
-
 ![concept-edc-service-provider](./docs/edc-service-provider.png)
 
 
+## Reference
 
-
+[1]: https://min.io/
 
 ---
+
 
 ## Developer Topics
 
@@ -225,6 +159,3 @@ what have I tried so far:
   - rosbag file (binary file) is somehow changed by transfer
 - create kubernetes-python client equivalent to `kubectl cp` (-> internally it's a kube exec with tar cf | tar xf )
 
-## Reference
-
-[1]: https://min.io/
