@@ -1,5 +1,4 @@
 {
-
     "python.linting.pylintEnabled": false,
     "python.linting.ignorePatterns": [
         "**/site-packages/**/*.py",
@@ -16,6 +15,13 @@
         "test_*.py"
     ],
     "python.testing.pytestEnabled": false,
-    "python.testing.unittestEnabled": true
-
+    "python.testing.unittestEnabled": true,
+    "[json]": {
+        "editor.quickSuggestions": {
+            "strings": true
+        },
+        "editor.suggest.insertMode": "replace",
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true
+    }
 }
