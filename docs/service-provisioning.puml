@@ -32,21 +32,24 @@ box "Provider ecosystem" #ProviderColor
 end box
 
 title
- **Service Provisioning**
+ **Compute Provider**
 end title
 autonumber 1
 == Initialization ==
 
 activate CCP
-CCP ->> PCP : initiate data transfer (see `TransferProcessApiController`)\n `DataRequest` has dest. type `HttpProvision`
+CCP ->> PCP : initiate data transfer for workflow asset
 activate PCP
-PCP ->> PBE : request of instance creation
+PCP ->> PBE : provision request for instance creation
 activate PBE
 PBE->>PBE: creating instance
 activate PBE
+PBE ->> PCP: callback provision finished
+activate CBE
+== Consumer Pull Exchange ==
 PBE->>PCP: provide credentials for accessing instance
 PCP->>CCP: forward information
-activate CBE
+
 CCP->>CBE: receive access information
 deactivate CCP
 
@@ -56,7 +59,7 @@ CBE->>PBE: request
 PBE->>CBE: answer
 
 == End of contract ==
-PCP->>PBE: service contract not valid anymore
+PCP->>PBE: contract not valid anymore
 PBE->>PBE: deprovision instance
 deactivate PBE
 
