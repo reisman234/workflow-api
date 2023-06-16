@@ -3,30 +3,31 @@
 This is the repository for the workflow-api project.
 It provides a simple single user interface to manage compute jobs and related data in a specified workflow backend.
 
-At the moment a very simple workflow backend is implemented to manage compute jobs in K8s.
+At the moment a very simple workflow backend to a Kubernetes Cluster is implemented.
 To manage the user data the workflow api relies on a [Minio storage backend][1], which needs to be deployed separately.
 
-## Compute Assets
+## Workflow Assets
 
-The structure of the API focusing on so called compute assets which the user can manage.
-In the simplest form the compute asset consists of a app, wich is the container to run, the hardware requirements (at the moment just GPU (YES/NO)) and the in- and output resources.
+The API is focusing on so called workflow assets, which the user can manage.
+In the simplest form the workflow asset consists of a app, wich is the container to run, the hardware requirements (at the moment just GPU (YES/NO)), a directory inside of the container, in which the result of the app will be persisted and the in- and output resources.
 
-> **_Note:_** Compute asses currently called `services` in the api
+> **_Note:_** workflow asses currently called `services` in the api
 
-The compute assets are resources predefined by the workflow administrator that are made available to consumers.
-First, the compute asset must be defined, i.e. it is first determined which container is executed with which resources.
-In addition, input resources such as source files or environments are defined, with which the execution is adapted to a certain degree to the requirements of the consumer.
-Finally, the compute asset must be assigned an asset ID with which it is registered in the EDC Connector.
+> **_Note:_** the WorkflowApi is currently only able to load static and predefined assets, later they will/should be loaded from a database.
 
-> **_Note:_** (Feature -- NOT Implemented) Extended Compute Assets are a special kind in which it is allowed to upload and specify the own App/Container
+For development and testing purpose static created assets can be defined and later loaded into the workflowApi.
+A predefined [dummy asset](config/assets/dummy.json) exists demonstrate the functionality.
+This can be used and adapted for own tests with other worker-images.
 
 
 ## API
 
 The following image shows the modules and components which are involved in the workflow-api.
-![Workflow-API](./docs/middlelayer-workflow-api.png)
+![Workflow-API](./docs/middlelayer_workflow-api.drawio.png)
 
-The Workflow API itself consists of an API which is the interface for the user interaction. An external S3StorageBackend Component, which is covered by a Minio deployment and stores the input and output data for an worker image. The third module is the K8sWorkflowBackend, which does the communication with the backend K8s cluster, to deployment, monitoring and cleanup of WorkflowJobs
+The Workflow API itself consists of an API which is the interface for the user interaction.
+An external S3StorageBackend Component, which is covered by a Minio deployment and stores the input and output data for an worker image.
+The third module is the K8sWorkflowBackend, this is responsible for the communication with the backend K8s cluster, to deployment, monitoring and cleanup of WorkflowJobs
 
 The WorkflowJob is a running Pod inside the Cluster, which is processing a long running task or some interactive job.
 The main part of such a job is a worker-image, which is a container image with a predefined application and provides maybe some configuration options to change the behavior of the application.
