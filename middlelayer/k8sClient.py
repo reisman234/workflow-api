@@ -1,5 +1,7 @@
 from typing import List, Dict, Union
 
+import sys
+import logging
 import urllib3
 import requests
 
@@ -9,6 +11,18 @@ from kubernetes.client.exceptions import ApiException
 
 
 from middlelayer.models import WorkflowResource, BaseModel
+
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+stdout_handle = logging.StreamHandler(sys.stdout)
+stdout_handle.setFormatter(formatter)
+stderr_hanlde = logging.StreamHandler(sys.stderr)
+stderr_hanlde.setFormatter(formatter)
+
+logging
+k8sclient_logger = logging.getLogger("k8sclient")
+k8sclient_logger.setLevel(level=logging.DEBUG)
+k8sclient_logger.addHandler(stdout_handle)
 
 
 class K8sContainerStateDate(BaseModel):
@@ -60,9 +74,9 @@ def k8s_create_pod_manifest(job_uuid,
     container = client.V1Container(
         name="worker",
         image=job_config.worker_image,
-        image_pull_policy="IfNotPresent",
-        # args=["entrypoint.sh"],
-        # command=["/bin/bash"],
+        image_pull_policy="Always",
+        args=["entrypoint.sh"],
+        command=["/bin/bash"],
     )
 
     if job_config.worker_image_output_directory:

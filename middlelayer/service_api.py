@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 from typing import Dict, List
 from configparser import ConfigParser
 from datetime import datetime, timedelta
@@ -53,6 +54,7 @@ WORKFLOW_API_CONFIG = CONFIG["workflow_api"]
 WORKFLOW_API_USER = WORKFLOW_API_CONFIG.get("workflow_api_user")
 WORKFLOW_API_ACCESS_TOKEN = WORKFLOW_API_CONFIG.get("workflow_api_access_token")
 WORKFLOW_API_USER_STORAGE = WORKFLOW_API_USER+"-storage"
+WORKFLOW_API_INSTANT_REMOVAL = WORKFLOW_API_CONFIG.getboolean("workflow_api_instant_removal", True)
 
 if not CONFIG.has_section("minio"):
     raise ValueError("config has no minio section")
@@ -209,6 +211,10 @@ class ServiceApi():
         self.workflow_backend.store_result(
             workflow_id=workflow_id,
             workflow_store_info=workflow_store_info)
+
+        if not WORKFLOW_API_INSTANT_REMOVAL:
+            workflow_api_logger.debug("WORKFLOW_API_INSTANT_REMOVAL disabled")
+            time.sleep(900)
 
         self.workflow_backend.cleanup(
             workflow_id=workflow_id)
