@@ -76,7 +76,7 @@ def k8s_create_pod_manifest(job_uuid,
         image=job_config.worker_image,
         image_pull_policy="Always",
         args=["entrypoint.sh"],
-        command=["/bin/bash"],
+        command=["/bin/sh"],
     )
 
     if job_config.worker_image_output_directory:
