@@ -28,7 +28,9 @@ class ServiceResouce(BaseModel):
 
 class WorkflowResource(BaseModel):
     worker_image: str
-    worker_image_output_directory: Union[str,None]
+    worker_image_output_directory: Union[str, None]
+    worker_image_args: Union[List[str], None] = None
+    worker_image_command: Union[List[str], None] = None
     gpu: bool
 
 
