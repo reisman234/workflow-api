@@ -10,7 +10,6 @@ from minio.deleteobjects import DeleteObject
 
 from middlelayer.models import MinioStoreInfo
 from datetime import timedelta
-import sys
 
 KB = 1024
 MB = 1024*KB
@@ -138,7 +137,11 @@ class ImlaMinio():
         objects = self.client.list_objects(bucket_name=bucket,
                                            prefix=prefix,
                                            recursive=True)
-        return [o.object_name for o in objects]
+        object_list = []
+        for obj in objects:
+            # remove the leading prefix of the object name
+            object_list.append(str(obj.object_name).replace(prefix, "", 1))
+        return object_list
 
     def get_download_url(self, bucket, resource):
         return self.client.presigned_get_object(bucket_name=bucket,

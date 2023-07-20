@@ -2,20 +2,19 @@ import logging
 import os
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Union
 from configparser import ConfigParser
-from datetime import datetime, timedelta
 from threading import Thread
 from uuid import uuid4
 
-from fastapi import FastAPI, Depends, HTTPException, Security, Body, UploadFile, File
-from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse, Response
+from fastapi import FastAPI, Depends, HTTPException, Security, UploadFile, File
+from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse, Response
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
 
 from middlelayer.asset import StaticAssetLoader
 from middlelayer.imla_minio import ImlaMinio
-from middlelayer.models import ServiceDescription, WorkflowResource, WorkflowStoreInfo
+from middlelayer.models import ServiceDescription, WorkflowStoreInfo
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 
 
@@ -147,8 +146,8 @@ class ServiceApi():
 
     def get_resource(self, service_id, resource_name):
         service_description = self.get_service_description(service_id)
-        resource_storage_prefix = f"{service_id}/outputs"
-        resource_storage_name = f"{resource_storage_prefix}/{resource_name}"
+        resource_storage_prefix = f"{service_id}/outputs/"
+        resource_storage_name = f"{resource_storage_prefix}{resource_name}"
 
         # check resource_name is a valid input
         if resource_name not in [x.resource_name for x in service_description.outputs]:
@@ -156,13 +155,22 @@ class ServiceApi():
                 status_code=HTTP_400_BAD_REQUEST, detail="no valid resource provided")
 
         # check if resource exists
-        if resource_storage_name not in self.storage.get_objects_list(
+        if resource_name not in self.storage.get_objects_list(
                 bucket=WORKFLOW_API_USER_STORAGE,
                 prefix=resource_storage_prefix):
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
                 detail="requested resource not exists"
             )
+
+        return self.storage.get_file(
+            bucket=WORKFLOW_API_USER_STORAGE,
+            resource=resource_storage_name
+        )
+
+    def get_workflow_result(self, service_id, workflow_id, result_file):
+        resource_storage_prefix = f"{service_id}/outputs/{workflow_id}"
+        resource_storage_name = f"{resource_storage_prefix}/{result_file}"
 
         return self.storage.get_file(
             bucket=WORKFLOW_API_USER_STORAGE,
@@ -260,6 +268,17 @@ class ServiceApi():
             )
         self.workflow_backend.cleanup(
             workflow_id=workflow_id)
+
+    def list_workflow_results(self, service_id: str, workflow_id: str):
+        service_description = self.get_service_description(service_id)
+        # TODO check if workflow_id is in history or it exists as a path prefix
+
+        workflow_result_prefix = f"{service_id}/outputs/{workflow_id}/"
+        object_list = self.storage.get_objects_list(
+            bucket=WORKFLOW_API_USER_STORAGE,
+            prefix=workflow_result_prefix)
+
+        return object_list
 
 
 client: ServiceApi = None
@@ -374,6 +393,47 @@ async def get_service_output_info(service_id: str, resource: str):
         if response:
             response.close()
             response.release_conn()
+
+
+@service_api.get("/services/{service_id}/workflow/results/{workflow_id}",)
+async def get_workflow_results(service_id: str, workflow_id: str, result_file: Union[str, None] = None):
+    """
+    if result_file=None, list the available result files for a executed workflow.
+    else the provided result_file will be downloaded.
+    """
+
+    object_list = client.list_workflow_results(service_id=service_id,
+                                               workflow_id=workflow_id)
+
+    if result_file:
+
+        if result_file not in object_list:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=f"unknown result_file {result_file}"
+            )
+
+        response = client.get_workflow_result(service_id=service_id,
+                                              workflow_id=workflow_id,
+                                              result_file=result_file)
+
+        def iter_content():
+            # Streaming the content in chunks to avoid loading everything into memory
+            for chunk in response.stream():
+                yield chunk
+
+        # Set the appropriate content headers in the response
+        # response.headers["Content-Disposition"] = f"attachment; filename={result_file}"
+        headers = {}
+        headers["Content-Type"] = response.headers.get("Content-Type")
+        headers["Content-Length"] = response.headers.get("Content-Length")
+        # headers["transfer-encoding"] = "chunked"
+        headers["Content-Disposition"] = f"attachment; filename={result_file}"
+
+        # Use StreamingResponse to return the content in chunks
+        return StreamingResponse(iter_content(), headers=headers, media_type="application/octet-stream")
+
+    return {"result_objects": object_list}
 
 
 @service_api.get("/services/{service_id}/workflow/")

@@ -8,14 +8,17 @@ services:
       "server",
       "/data",
       "--console-address",
-      ":9090",
+      ":9001",
     ]
     volumes:
       - ./tmp/minio/:/data
     environment:
-      - MINIO_ROOT_USER=root
-      - MINIO_ROOT_PASSWORD=changeme123
+      - MINIO_ROOT_USER=rootuser
+      - MINIO_ROOT_PASSWORD=rootpass123
       - TZ=Europe/Berlin
+    ports:
+      - 9000:9000
+      - 9001:9001
     networks:
       minikube:
         ipv4_address: 192.168.49.6
