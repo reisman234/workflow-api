@@ -367,9 +367,9 @@ async def put_service_input_info(service_id: str,
 
 
 @service_api.get("/services/{service_id}/output")
-async def get_service_output_info(service_id: str, resource: str):
+async def get_service_result(service_id: str, resource: str):
     """
-    download a generated result file from the user storage
+    download a created result file for a specific service from the user storage.
     """
     KB = 1024
 
@@ -395,47 +395,6 @@ async def get_service_output_info(service_id: str, resource: str):
     # return Response(
     #     content=response.read(),
     #     headers=headers)
-
-
-@service_api.get("/services/{service_id}/workflow/results/{workflow_id}",)
-async def get_workflow_results(service_id: str, workflow_id: str, result_file: Union[str, None] = None):
-    """
-    if result_file=None, list the available result files for a executed workflow.
-    else the provided result_file will be downloaded.
-    """
-
-    object_list = client.list_workflow_results(service_id=service_id,
-                                               workflow_id=workflow_id)
-
-    if result_file:
-
-        if result_file not in object_list:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail=f"unknown result_file {result_file}"
-            )
-
-        response = client.get_workflow_result(service_id=service_id,
-                                              workflow_id=workflow_id,
-                                              result_file=result_file)
-
-        def iter_content():
-            # Streaming the content in chunks to avoid loading everything into memory
-            for chunk in response.stream():
-                yield chunk
-
-        # Set the appropriate content headers in the response
-        # response.headers["Content-Disposition"] = f"attachment; filename={result_file}"
-        headers = {}
-        headers["Content-Type"] = response.headers.get("Content-Type")
-        headers["Content-Length"] = response.headers.get("Content-Length")
-        # headers["transfer-encoding"] = "chunked"
-        headers["Content-Disposition"] = f"attachment; filename={result_file}"
-
-        # Use StreamingResponse to return the content in chunks
-        return StreamingResponse(iter_content(), headers=headers, media_type="application/octet-stream")
-
-    return {"result_objects": object_list}
 
 
 @service_api.get("/services/{service_id}/workflow/")
