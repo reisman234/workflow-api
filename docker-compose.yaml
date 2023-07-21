@@ -30,9 +30,9 @@ services:
     image: gx4ki/workflow-api:latest
     container_name: workflow-api
     volumes:
-      - ./config/workflow-api.cfg:/opt/k8s-api/config/workflow-api.cfg
+      - ./config/workflow-api.cfg:/opt/config/workflow-api.cfg
       - ./config/kube/config:/root/.kube/config
-      - ./config/assets:/opt/k8s-api/assets
+      - ./config/assets:/opt/assets
     networks:
       minikube:
         ipv4_address: 192.168.49.5

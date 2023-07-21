@@ -359,40 +359,42 @@ async def put_service_input_info(service_id: str,
     """
     upload service specific file into the user storage
     """
-    resource_upload = client.put_resource(
-        service_id=service_id,
-        resource_name=resource,
-        resource_file=input_file)
+    client.put_resource(service_id=service_id,
+                        resource_name=resource,
+                        resource_file=input_file)
 
     return {}
 
 
-@service_api.get("/services/{service_id}/output/{resource}")
+@service_api.get("/services/{service_id}/output")
 async def get_service_output_info(service_id: str, resource: str):
     """
     download a generated result file from the user storage
     """
     KB = 1024
-    response = None
-    try:
-        response = client.get_resource(service_id,
-                                       resource)
 
-        # Set the Content-Disposition header so the browser
-        # knows to download the file instead of displaying it
-        headers = {}
-        headers["content-type"] = response.headers.get("Content-Type")
-        headers["content-length"] = response.headers.get("Content-Length")
-        # headers["transfer-encoding"] = "chunked"
-        headers["content-disposition"] = f"attachment"
+    response = client.get_resource(service_id,
+                                   resource)
 
-        return Response(
-            content=response.read(),
-            headers=headers)
-    finally:
-        if response:
-            response.close()
-            response.release_conn()
+    # Set the Content-Disposition header so the browser
+    # knows to download the file instead of displaying it
+    headers = {}
+    headers["Content-Type"] = response.headers.get("Content-Type")
+    headers["Content-Length"] = response.headers.get("Content-Length")
+    # headers["transfer-encoding"] = "chunked"
+    headers["Content-Disposition"] = f"attachment; filename={resource}"
+
+    def iter_content():
+        # Streaming the content in chunks to avoid loading everything into memory
+        for chunk in response.stream():
+            yield chunk
+
+    # Use StreamingResponse to return the content in chunks
+    return StreamingResponse(iter_content(),
+                             headers=headers)
+    # return Response(
+    #     content=response.read(),
+    #     headers=headers)
 
 
 @service_api.get("/services/{service_id}/workflow/results/{workflow_id}",)
