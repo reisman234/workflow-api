@@ -179,7 +179,7 @@ class ServiceApi():
 
     def service_inputs_exists(self, service_id: str):
         service_description = self.get_service_description(service_id)
-        resource_storage_prefix = f"{service_id}/inputs"
+        resource_storage_prefix = f"{service_id}/inputs/"
         objects_list = self.storage.get_objects_list(
             bucket=WORKFLOW_API_USER_STORAGE,
             prefix=resource_storage_prefix)
