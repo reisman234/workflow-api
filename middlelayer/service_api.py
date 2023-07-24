@@ -184,7 +184,7 @@ class ServiceApi():
             bucket=WORKFLOW_API_USER_STORAGE,
             prefix=resource_storage_prefix)
         for resource in service_description.inputs:
-            if f'{resource_storage_prefix}/{resource.resource_name}' not in objects_list:
+            if f'{resource.resource_name}' not in objects_list:
                 return False
         return True
 
