@@ -19,7 +19,6 @@ stdout_handle.setFormatter(formatter)
 stderr_hanlde = logging.StreamHandler(sys.stderr)
 stderr_hanlde.setFormatter(formatter)
 
-logging
 k8sclient_logger = logging.getLogger("k8sclient")
 k8sclient_logger.setLevel(level=logging.DEBUG)
 k8sclient_logger.addHandler(stdout_handle)
@@ -35,7 +34,6 @@ class K8sPodStateData(BaseModel):
     pod_phase: str
     pod_state_condition: Union[List[str], None]
     container_statuses: Union[Dict[str, K8sContainerStateDate], None]
-
 
 NAMESPACE = "default"
 IMAGE_PULL_SECRET = "imla-registry"
@@ -100,8 +98,6 @@ def k8s_create_pod_manifest(job_uuid,
         name="data-side-car",
         image=DATA_SIDE_CAR_IMAGE,
         image_pull_policy="Always"
-        # command=["/bin/sh"],
-        # tty=True,
     )
 
     if job_config.worker_image_output_directory:
