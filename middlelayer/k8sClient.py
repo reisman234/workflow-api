@@ -99,7 +99,7 @@ def k8s_create_pod_manifest(job_uuid,
     side_car = client.V1Container(
         name="data-side-car",
         image=DATA_SIDE_CAR_IMAGE,
-        image_pull_policy="IfNotPresent"
+        image_pull_policy="Always"
         # command=["/bin/sh"],
         # tty=True,
     )
