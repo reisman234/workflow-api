@@ -3,7 +3,7 @@ __pycache__
 
 config/assets/*
 !config/assets/dummy.json
-config/kube/config
+config/kube/*config
 config/*kubeconfig
 config/*.conf
 config/*.cfg

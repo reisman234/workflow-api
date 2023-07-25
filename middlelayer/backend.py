@@ -2,6 +2,7 @@ from typing import List, Dict, Union, Callable
 from threading import Thread, Event
 from uuid import uuid4
 from io import StringIO
+from enum import Enum
 
 import sys
 import logging
@@ -66,11 +67,27 @@ class WorkflowBackend():
         pass
 
 
+class WorkflowJobPhase(Enum):
+    PREPARING = 1
+    RUNNING = 2
+    STORING = 3
+    FINISHED = 4
+    CANCELED = 5
+
+
+class WorkflowJobState(BaseModel):
+    phase: WorkflowJobPhase = WorkflowJobPhase.PREPARING
+    worker_state: Union[K8sPodStateData, None] = None
+
+    class Config:
+        json_encoders = {WorkflowJobPhase: lambda p: p.name}
+
+
 class K8sJobData(BaseModel):
     config_maps: Union[List[str], None] = []
     job_id: Union[str, None] = None
     job_monitor_event: Union[Event, None] = None
-    job_state: Union[K8sPodStateData, None] = None
+    job_state: Union[WorkflowJobState, None] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -114,15 +131,20 @@ class SimpleDB():
             return None
         return self.data.get(key).job_monitor_event
 
-    def insert_workflow_state(self, workflow_id: str, pod_data: K8sPodStateData):
+    def insert_workflow_state(self, workflow_id: str, job_state: WorkflowJobState):
         if workflow_id not in self.data:
             self.data[workflow_id] = K8sJobData()
-        self.data.get(workflow_id).job_state = pod_data
+        self.data.get(workflow_id).job_state = job_state
 
-    def get_workflow_state(self, workflow_id: str) -> K8sPodStateData:
+    def get_workflow_state(self, workflow_id: str) -> WorkflowJobState:
         if workflow_id not in self.data:
             return None
         return self.data.get(workflow_id).job_state
+
+    def set_workflow_job_finished(self, workflow_id: str):
+        if workflow_id not in self.data:
+            return None
+        self.data.get(workflow_id).job_state.phase = WorkflowJobPhase.FINISHED
 
     def delete_entry(self, key):
         if key not in self.data:
@@ -219,7 +241,7 @@ class K8sWorkflowBackend(WorkflowBackend):
             self._cleanup_monitor(
                 workflow_id=workflow_id)
 
-        self.dummy_db.delete_entry(workflow_id)
+        self.dummy_db.set_workflow_job_finished(workflow_id)
 
     def stop_workflow(self,
                       workflow_id: str):
@@ -245,8 +267,7 @@ class K8sWorkflowBackend(WorkflowBackend):
                 namespace=self.namespace,
                 tail_lines=None)
 
-        return {"job_state": job_data.job_state.pod_phase,
-                "detail": job_data.job_state.container_statuses["worker"].details}
+        return {"job_state": job_data.job_state.json()}
 
     def store_result(self,
                      workflow_id,
@@ -255,17 +276,13 @@ class K8sWorkflowBackend(WorkflowBackend):
         if not job_data:
             raise KeyError(f"invalid workflow_id: {workflow_id}")
 
-        data_side_car_service = f"http://{job_data.job_id}/store/"
-        data_side_car_service = "http://192.168.49.2:32000/store/"
-
         # TODO
         # - add auth header
         # - use callback
         workflow_backend_logger.debug("""store_workflow_result:
-                        \tdata_side_car_service: %s
                         \tworkflow_id: %s
                         \tworkflow_store_info: %s""",
-                                      data_side_car_service, workflow_id, workflow_store_info.json())
+                                      workflow_id, workflow_store_info.json())
 
         status_code = k8s_portforward(data=workflow_store_info.json(),
                                       name=job_data.job_id,
@@ -299,17 +316,29 @@ class K8sWorkflowBackend(WorkflowBackend):
 
         def pod_state_handle(pod_state: K8sPodStateData):
             workflow_backend_logger.debug(pod_state)
+
+            can_exit = False
+            phase = WorkflowJobPhase.PREPARING
+            if stop_event.is_set():
+                can_exit = True
+                phase = WorkflowJobPhase.CANCELED
+            if pod_state.container_statuses is None:
+                can_exit = False
+                phase = WorkflowJobPhase.PREPARING
+            if pod_state.container_statuses["worker"].state == "running":
+                can_exit = False
+                phase = WorkflowJobPhase.RUNNING
+            if pod_state.container_statuses["worker"].state == "terminated":
+                can_exit = True
+                phase = WorkflowJobPhase.STORING
+
             self.dummy_db.insert_workflow_state(
                 workflow_id=workflow_id,
-                pod_data=pod_state)
+                job_state=WorkflowJobState(phase=phase,
+                                           worker_state=pod_state)
+            )
 
-            if stop_event.is_set():
-                return True
-            if pod_state.container_statuses is None:
-                return False
-            if pod_state.container_statuses["worker"].state == "terminated":
-                return True
-            return False
+            return can_exit
 
         job_id = self.dummy_db.get_job_data(key=workflow_id).job_id
         # loops until pod_state_handle returns True

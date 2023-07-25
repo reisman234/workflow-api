@@ -11,7 +11,7 @@ class StaticAssetLoader():
 
     def __init__(self, **kwargs):
         kwargs.get("static_asset_directory")
-        self.static_asset_directory = kwargs.get("static_asset_directory", "./assets")
+        self.static_asset_directory = kwargs.get("static_asset_directory", "./config/assets")
         self.asset_info = list()
         self.assets_descriptions: Dict[str, ServiceDescription] = dict()
         self.__read_json_files()

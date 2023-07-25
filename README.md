@@ -59,11 +59,11 @@ But there are some prerequisites which needs to be addressed bevor we can deploy
 4. Prepare the kubeconfig file:
    1. Copy the template `cp config/kube/config.tmpl config/kube/config`
    2. Get the Token for the created ServiceAccount (`{GX4KI_API_SERVICE_ACCOUNT_TOKEN}`): <br>
-      `kubectl -n gx4ki-demo get secret $(kubectl -n gx4ki-demo get serviceaccounts workflow-api-service-account -o jsonpath={.secrets[0].name}) -o jsonpath={.data.token} | base64 -d`
+      `kubectl -n gx4ki-demo get secret workflow-api-token -o jsonpath={.data.token} | base64 -d`
    3. Get the Cluster CA certificate (`{MINIKUBE_CA_CRT}`): <br>
-      `kubectl -n gx4ki-demo get secret $(kubectl -n gx4ki-demo get serviceaccounts workflow-api-service-account -o jsonpath={.secrets[0].name}) -o jsonpath={.data.'ca\.crt'}`
+      `kubectl -n gx4ki-demo get secret workflow-api-token -o jsonpath={.data.'ca\.crt'}`
    4. Get the Clusters IP (`{MINIKUBE_IP}`): <br>
-      `minikube ip`
+      `kubectl cluster-info | grep "control plane" | grep -o -E "https?.*"`
    5. Check the if the kubeconfig works, by running and deleting a pod. <br>
       1. Run a pod:
           ```bash

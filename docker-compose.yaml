@@ -32,7 +32,9 @@ services:
     volumes:
       - ./config/workflow-api.cfg:/opt/config/workflow-api.cfg
       - ./config/kube/config:/root/.kube/config
-      - ./config/assets:/opt/assets
+      - ./config/assets:/opt/config/assets
+
+      - ./middlelayer:/opt/middlelayer
     networks:
       minikube:
         ipv4_address: 192.168.49.5
