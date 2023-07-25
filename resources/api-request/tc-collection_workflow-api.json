@@ -1,0 +1,254 @@
+{
+    "client": "Thunder Client",
+    "collectionName": "workflow-api",
+    "dateExported": "2023-07-25T06:47:28.688Z",
+    "version": "1.1",
+    "folders": [],
+    "requests": [
+        {
+            "_id": "e0704166-47cb-4ce7-9b39-e43efd453504",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Get Services Copy",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/",
+            "method": "GET",
+            "sortNum": 25000,
+            "created": "2023-06-12T11:25:12.510Z",
+            "modified": "2023-07-24T07:44:17.426Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                }
+            ],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "556aa034-f6f2-413b-8117-ccd54771e3b6",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Get Service Info",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/info",
+            "method": "GET",
+            "sortNum": 30000,
+            "created": "2023-06-12T11:14:11.123Z",
+            "modified": "2023-06-12T11:17:19.315Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                }
+            ],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "6f075ca6-67d2-4dc5-866f-0fee3a0b8b20",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Upload Input Resource",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/input/{resource}",
+            "method": "PUT",
+            "sortNum": 40000,
+            "created": "2023-06-12T11:18:02.223Z",
+            "modified": "2023-07-25T06:45:46.009Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                },
+                {
+                    "name": "Content-Type",
+                    "value": "multipart/form-data",
+                    "isDisabled": true
+                }
+            ],
+            "params": [
+                {
+                    "name": "resource",
+                    "value": "env",
+                    "isPath": true
+                }
+            ],
+            "body": {
+                "type": "formdata",
+                "raw": "",
+                "form": [
+                    {
+                        "name": "input_file",
+                        "value": "",
+                        "isDisabled": true
+                    }
+                ],
+                "files": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "e8a52742-dcaa-4845-89d1-0040753d92e8",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Download Output Resource",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/output?resource=rosbag.bag",
+            "method": "GET",
+            "sortNum": 45000,
+            "created": "2023-06-12T11:39:42.434Z",
+            "modified": "2023-07-24T15:07:06.965Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                },
+                {
+                    "name": "Content-Type",
+                    "value": "multipart/form-data",
+                    "isDisabled": true
+                }
+            ],
+            "params": [
+                {
+                    "name": "resource",
+                    "value": "rosbag.bag",
+                    "isPath": false
+                }
+            ],
+            "tests": []
+        },
+        {
+            "_id": "44714caf-7d86-44f1-ac05-49c775eff069",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Get Workflows",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/workflow/",
+            "method": "GET",
+            "sortNum": 50000,
+            "created": "2023-06-12T11:03:35.708Z",
+            "modified": "2023-06-12T11:27:06.468Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                }
+            ],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "89faaed8-5318-44d1-ab5f-0a40de55b97a",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Start Workflow",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/workflow/execute",
+            "method": "POST",
+            "sortNum": 60000,
+            "created": "2023-06-12T11:27:19.512Z",
+            "modified": "2023-06-12T11:28:12.481Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                }
+            ],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "836ca553-686f-4e22-83a0-a66991007228",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Stop Workflow ",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/workflow/stop/{WORKFLOW_ID}",
+            "method": "POST",
+            "sortNum": 70000,
+            "created": "2023-06-12T11:29:14.899Z",
+            "modified": "2023-07-25T06:46:36.482Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                }
+            ],
+            "params": [
+                {
+                    "name": "WORKFLOW_ID",
+                    "value": "",
+                    "isPath": true
+                }
+            ],
+            "tests": []
+        },
+        {
+            "_id": "8ff3ad5f-0ed0-46a2-a67b-a7de2d6a984c",
+            "colId": "5d1699c2-26e3-4c19-85da-0bd1f23104af",
+            "containerId": "",
+            "name": "Get Workflow Status",
+            "url": "{{API_HOST}}{{API_PORT}}{{API_ROOT_PATH}}/services/{{DEFAULT_ASSET_NAME}}/workflow/status/{WORKFLOW_ID}?verbose_level=0",
+            "method": "GET",
+            "sortNum": 80000,
+            "created": "2023-06-12T11:30:09.514Z",
+            "modified": "2023-07-25T06:46:56.634Z",
+            "headers": [
+                {
+                    "name": "accept",
+                    "value": "application/json"
+                },
+                {
+                    "name": "access-token",
+                    "value": "{{API_ACCESS_TOKEN}}"
+                }
+            ],
+            "params": [
+                {
+                    "name": "WORKFLOW_ID",
+                    "value": "",
+                    "isPath": true
+                },
+                {
+                    "name": "verbose_level",
+                    "value": "0",
+                    "isPath": false
+                }
+            ],
+            "tests": []
+        }
+    ],
+    "settings": {
+        "auth": {
+            "type": "basic",
+            "basic": {
+                "username": "{{BASIC_AUTH_USER}}",
+                "password": "{{BASIC_AUTH_PASS}}"
+            }
+        },
+        "envId": "17bdf44e-5d2b-4997-b7d2-09d891e014f9"
+    }
+}
