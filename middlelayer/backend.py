@@ -322,13 +322,13 @@ class K8sWorkflowBackend(WorkflowBackend):
             if stop_event.is_set():
                 can_exit = True
                 phase = WorkflowJobPhase.CANCELED
-            if pod_state.container_statuses is None:
+            elif pod_state.container_statuses is None:
                 can_exit = False
                 phase = WorkflowJobPhase.PREPARING
-            if pod_state.container_statuses["worker"].state == "running":
+            elif pod_state.container_statuses["worker"].state == "running":
                 can_exit = False
                 phase = WorkflowJobPhase.RUNNING
-            if pod_state.container_statuses["worker"].state == "terminated":
+            elif pod_state.container_statuses["worker"].state == "terminated":
                 can_exit = True
                 phase = WorkflowJobPhase.STORING
 
