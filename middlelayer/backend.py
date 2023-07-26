@@ -31,6 +31,36 @@ workflow_backend_logger.addHandler(stdout_handle)
 # workflow_backend_logger.addHandler(stderr_hanlde)
 
 
+class WorkflowJobPhase(str, Enum):
+    PREPARING = "PREPARING"
+    RUNNING = "RUNNING"
+    STORING = "STORING"
+    FINISHED = "FINISHED"
+    CANCELED = "CANCELED"
+
+
+class WorkflowJobState(BaseModel):
+    phase: WorkflowJobPhase = WorkflowJobPhase.PREPARING
+    worker_state: Union[K8sPodStateData, None] = None
+
+    class Config:
+        json_encoders = {WorkflowJobPhase: lambda p: p.name}
+
+
+class K8sJobData(BaseModel):
+    config_maps: Union[List[str], None] = []
+    job_id: Union[str, None] = None
+    job_monitor_event: Union[Event, None] = None
+    job_state: Union[WorkflowJobState, None] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class K8sData(BaseModel):
+    data: Union[Dict[str, K8sJobData], None]
+
+
 class WorkflowBackend():
 
     def __init__(self):
@@ -59,42 +89,12 @@ class WorkflowBackend():
 
     def get_status(self,
                    workflow_id: str,
-                   verbose_level: int) -> Union[dict, str]:
+                   verbose_level: int) -> Union[WorkflowJobState, str]:
         pass
 
     def cleanup(self,
                 workflow_id: str):
         pass
-
-
-class WorkflowJobPhase(Enum):
-    PREPARING = 1
-    RUNNING = 2
-    STORING = 3
-    FINISHED = 4
-    CANCELED = 5
-
-
-class WorkflowJobState(BaseModel):
-    phase: WorkflowJobPhase = WorkflowJobPhase.PREPARING
-    worker_state: Union[K8sPodStateData, None] = None
-
-    class Config:
-        json_encoders = {WorkflowJobPhase: lambda p: p.name}
-
-
-class K8sJobData(BaseModel):
-    config_maps: Union[List[str], None] = []
-    job_id: Union[str, None] = None
-    job_monitor_event: Union[Event, None] = None
-    job_state: Union[WorkflowJobState, None] = None
-
-    class Config:
-        arbitrary_types_allowed = True
-
-
-class K8sData(BaseModel):
-    data: Union[Dict[str, K8sJobData], None]
 
 
 class SimpleDB():
@@ -252,7 +252,7 @@ class K8sWorkflowBackend(WorkflowBackend):
 
     def get_status(self,
                    workflow_id: str,
-                   verbose_level: int) -> Union[dict, str]:
+                   verbose_level: int) -> Union[WorkflowJobState, str]:
         job_data = self.dummy_db.get_job_data(workflow_id)
 
         if verbose_level == 1:
@@ -267,7 +267,7 @@ class K8sWorkflowBackend(WorkflowBackend):
                 namespace=self.namespace,
                 tail_lines=None)
 
-        return {"job_state": job_data.job_state.json()}
+        return job_data.job_state
 
     def store_result(self,
                      workflow_id,

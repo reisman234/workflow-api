@@ -458,7 +458,7 @@ async def get_service_workflow_status(service_id: str, workflow_id: str, verbose
         return JSONResponse(status_code=HTTP_200_OK,
                             content={"service_id": service_id,
                                      "workflow_id": workflow_id,
-                                     "workflow_status": workflow_status})
+                                     "workflow_status": workflow_status.dict()})
     if verbose_level in [1, 2]:
         return PlainTextResponse(status_code=HTTP_200_OK,
                                  content=workflow_status)
