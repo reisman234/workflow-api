@@ -1,5 +1,4 @@
 # pylint: disable=no-name-in-module
-
 from typing import List, Union
 from datetime import datetime, timedelta
 from enum import IntEnum
@@ -15,15 +14,28 @@ class Service():
 class ServiceResourceType(IntEnum):
     environment = 1
     data = 2
+    data_zip = 3
 
 # TODO environment type data size in k8s can only be 1MB in v1.21 and 8MB v1.22,
 # it depends on the etcd
+
+
+class WorkflowInputResource(BaseModel):
+    resource_name: str
+    type:  ServiceResourceType
+    storage_source: str
+    mount_path: Union[str, None] = None
+    description: str
 
 
 class ServiceResouce(BaseModel):
     resource_name: str
     type: ServiceResourceType
     description: str
+
+
+class InputServiceResource(ServiceResouce):
+    mount_path: Union[str, None] = None
 
 
 class WorkflowResource(BaseModel):
@@ -36,7 +48,7 @@ class WorkflowResource(BaseModel):
 
 class ServiceDescription(BaseModel):
     service_id: str
-    inputs: List[ServiceResouce]
+    inputs: List[InputServiceResource]
     outputs: List[ServiceResouce]
     workflow_resource: WorkflowResource
 

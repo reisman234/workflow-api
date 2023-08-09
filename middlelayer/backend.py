@@ -1,15 +1,18 @@
 from typing import List, Dict, Union, Callable
 from threading import Thread, Event
-from uuid import uuid4
+from uuid import uuid4, UUID
 from io import StringIO
 from enum import Enum
 
 import sys
 import logging
+import json
 
 import dotenv
 
-from middlelayer.models import ServiceResouce, ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo
+
+
+from middlelayer.models import ServiceResouce, ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo, WorkflowInputResource
 from middlelayer.k8sClient import K8sPodStateData
 from middlelayer.k8sClient import k8s_create_config_map, k8s_delete_config_map,\
     k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, \
@@ -47,8 +50,14 @@ class WorkflowJobState(BaseModel):
         json_encoders = {WorkflowJobPhase: lambda p: p.name}
 
 
+class WorkflowInputConfig(BaseModel):
+    id: str = str(uuid4())
+    inputs: List[WorkflowInputResource] = []
+
+
 class K8sJobData(BaseModel):
     config_maps: Union[List[str], None] = []
+    input_config: WorkflowInputConfig = None
     job_id: Union[str, None] = None
     job_monitor_event: Union[Event, None] = None
     job_state: Union[WorkflowJobState, None] = None
@@ -68,7 +77,7 @@ class WorkflowBackend():
 
     def handle_input(self,
                      workflow_id: str,
-                     input_resource: ServiceResouce,
+                     input_resource: WorkflowInputResource,
                      get_data_handle: Callable):
         pass
 
@@ -106,10 +115,22 @@ class SimpleDB():
             self.data[key] = K8sJobData()
         self.data[key].config_maps.append(data)
 
+    def insert_input_resource(self, key: str, input_resource: WorkflowInputResource) -> None:
+        if key not in self.data:
+            self.data[key] = K8sJobData()
+        if not self.data[key].input_config:
+            self.data[key].input_config = WorkflowInputConfig()
+        self.data[key].input_config.inputs.append(input_resource)
+
     def get_config_maps(self, key):
         if key not in self.data:
             return []
         return self.data[key].config_maps
+
+    def get_input_config(self, key: str) -> WorkflowInputConfig:
+        if key not in self.data:
+            return None
+        return self.data[key].input_config
 
     def get_job_data(self, key: str) -> K8sJobData:
         if key not in self.data:
@@ -167,7 +188,10 @@ class K8sWorkflowBackend(WorkflowBackend):
             image_pull_secret=image_pull_secret,
             data_side_car_image=data_side_car_image)
 
-    def handle_input(self, workflow_id: str, input_resource: ServiceResouce, get_data_handle: Callable):
+    def handle_input(self,
+                     workflow_id: str,
+                     input_resource: WorkflowInputResource,
+                     get_data_handle: Callable):
         """
         In case for environment data create a config_map.
         For data create a list which will be downloaded by the init container
@@ -185,21 +209,30 @@ class K8sWorkflowBackend(WorkflowBackend):
                 labels=self.__get_lable(workflow_id=workflow_id))
 
             self.dummy_db.append_config_map(workflow_id, config_map_id)
-        elif input_resource.type is ServiceResourceType.data:
-            raise NotImplementedError()
+        else:
+            self.dummy_db.insert_input_resource(workflow_id, input_resource)
 
     def commit_workflow(self, workflow_id,
                         workflow_resource: WorkflowResource,
                         workflow_finished_handle: Callable):
         job_id = str(uuid4())
 
+        input_config_ref = self.__create_input_config_ref(
+            workflow_id=workflow_id,
+            labels=self.__get_lable(workflow_id=workflow_id,
+                                    job_id=job_id))
+
         config_map_ids = self.dummy_db.get_config_maps(
             key=workflow_id)
+
+        input_resource = self.dummy_db.get_input_config(workflow_id).inputs
 
         pod_manifest = k8s_create_pod_manifest(
             job_uuid=job_id,
             job_config=workflow_resource,
             config_map_ref=config_map_ids,
+            input_config_ref=input_config_ref,
+            input_resources=input_resource,
             job_namespace=self.namespace,
             labels=self.__get_lable(workflow_id=workflow_id,
                                     job_id=job_id))
@@ -231,6 +264,13 @@ class K8sWorkflowBackend(WorkflowBackend):
         for config_map_id in job_data.config_maps:
             k8s_delete_config_map(config_map_id,
                                   self.namespace)
+
+        input_config = self.dummy_db.get_input_config(key=workflow_id)
+        if input_config:
+            k8s_delete_config_map(
+                name=input_config.id,
+                namespace=self.namespace
+            )
 
         if job_data.job_id:
             k8s_delete_pod(
@@ -298,6 +338,24 @@ class K8sWorkflowBackend(WorkflowBackend):
     def _cleanup_monitor(self, workflow_id: str):
         stop_event = self.dummy_db.get_job_monitor_event(workflow_id)
         stop_event.set()
+
+    def __create_input_config_ref(self,
+                                  workflow_id: str,
+                                  labels: dict = None):
+        input_config = self.dummy_db.get_input_config(workflow_id)
+
+        if not input_config:
+            return None
+
+        input_config_json = [item.model_dump() for item in input_config.inputs]
+
+        k8s_create_config_map(
+            name=str(input_config.id),
+            namespace=self.namespace,
+            data={"input-init.json": json.dumps(input_config_json)},
+            labels=labels)
+
+        return input_config.id
 
     def __create_monitor_thread(self,
                                 workflow_id: str,

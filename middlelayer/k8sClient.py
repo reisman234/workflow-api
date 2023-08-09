@@ -1,5 +1,6 @@
 from typing import List, Dict, Union
 
+import os
 import sys
 import logging
 import urllib3
@@ -9,8 +10,8 @@ from kubernetes import client, config, watch
 from kubernetes.stream import portforward
 from kubernetes.client.exceptions import ApiException
 
-
-from middlelayer.models import WorkflowResource, BaseModel
+from middlelayer.decorators import retry
+from middlelayer.models import WorkflowResource, BaseModel, WorkflowInputResource, ServiceResourceType
 
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -34,6 +35,7 @@ class K8sPodStateData(BaseModel):
     pod_phase: str
     pod_state_condition: Union[List[str], None]
     container_statuses: Union[Dict[str, K8sContainerStateDate], None]
+
 
 NAMESPACE = "default"
 IMAGE_PULL_SECRET = "imla-registry"
@@ -67,23 +69,109 @@ def k8s_get_healthz():
 def k8s_create_pod_manifest(job_uuid,
                             job_config: WorkflowResource,
                             config_map_ref: List[str] = None,
+                            input_config_ref: str = None,
+                            input_resources: List[WorkflowInputResource] = None,
                             job_namespace=NAMESPACE,
                             labels=None) -> client.V1Pod:
-    container = client.V1Container(
-        name="worker",
-        image=job_config.worker_image,
-        image_pull_policy="Always",
-        args=job_config.worker_image_args,
-        command=job_config.worker_image_command,
-    )
+
+    data_init_container = None
+    worker_container_volume_mounts = []
+    pod_spec_volumes = []
+    pod_spec_init_containers = []
+    if input_config_ref:
+
+        pod_spec_volumes.append(
+            client.V1Volume(
+                name="workflow-api-config",
+                secret=client.V1SecretVolumeSource(
+                    secret_name="workflow-api-config"
+                )
+            )
+        )
+
+        pod_spec_volumes.append(
+            client.V1Volume(
+                name="input-mount",
+                empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi")
+            )
+        )
+
+        pod_spec_volumes.append(
+            client.V1Volume(
+                name="input-init-config",
+                config_map=client.V1ConfigMapVolumeSource(
+                    name=input_config_ref,
+                    items=[client.V1KeyToPath(key="input-init.json", path="input-init.json")])
+            )
+        )
+
+        data_init_container = client.V1Container(
+            name="data-input-init",
+            image=DATA_SIDE_CAR_IMAGE,
+            image_pull_policy="Always",
+            command=["python3"],
+            args=["init.py"],
+            env=[
+                client.V1EnvVar(name="INPUT_INIT_CONFIG", value="/opt/config/input-init.json"),
+                client.V1EnvVar(name="DATA_DESTINATION", value="/data/"),
+                client.V1EnvVar(name="CONFIG_FILE_PATH", value="/opt/config/workflow-api.cfg")
+            ],
+
+            volume_mounts=[
+                client.V1VolumeMount(
+                    mount_path="/opt/config/input-init.json",
+                    sub_path="input-init.json",
+                    name="input-init-config"
+                ),
+                client.V1VolumeMount(
+                    mount_path="/opt/config/workflow-api.cfg",
+                    sub_path="workflow-api.cfg",
+                    name="workflow-api-config"
+                ),
+                client.V1VolumeMount(
+                    mount_path="/data/",
+                    name="input-mount"
+                )
+            ]
+        )
+
+        for resource in input_resources:
+            if resource.type is ServiceResourceType.environment:
+                continue
+
+            sub_path = None
+            mount_path = resource.mount_path
+
+            if resource.type is ServiceResourceType.data:
+                sub_path = resource.resource_name
+                mount_path = os.path.join(resource.mount_path, resource.resource_name)
+
+            worker_container_volume_mounts.append(
+                client.V1VolumeMount(
+                    mount_path=mount_path,
+                    sub_path=sub_path,
+                    name="input-mount"
+                )
+            )
+
+        pod_spec_init_containers.append(data_init_container)
 
     if job_config.worker_image_output_directory:
-        container.volume_mounts = [
+        worker_container_volume_mounts.append(
             client.V1VolumeMount(
                 mount_path=job_config.worker_image_output_directory,
                 name="output-mount"
             )
-        ]
+        )
+
+    container = client.V1Container(
+        name="worker",
+        image=job_config.worker_image,
+        image_pull_policy="Always",
+        command=job_config.worker_image_command,
+        args=job_config.worker_image_args,
+        volume_mounts=worker_container_volume_mounts
+    )
 
     if job_config.gpu:
         container.resources = client.V1ResourceRequirements(
@@ -106,13 +194,19 @@ def k8s_create_pod_manifest(job_uuid,
                 mount_path="/output",
                 name="output-mount")]
 
+    pod_spec_volumes.append(
+        client.V1Volume(
+            name="output-mount",
+            empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi")
+        )
+    )
+
     pod_spec = client.V1PodSpec(restart_policy="Never",
                                 containers=[container, side_car],
                                 image_pull_secrets=[
                                     client.V1LocalObjectReference(name=IMAGE_PULL_SECRET)],
-                                volumes=[client.V1Volume(
-                                    name="output-mount",
-                                    empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi"))])
+                                init_containers=pod_spec_init_containers,
+                                volumes=pod_spec_volumes)
 
     pod = client.V1Pod(
         api_version="v1",
@@ -239,6 +333,7 @@ def k8s_watch_pod_events(pod_name, pod_state_handle, namespace=NAMESPACE):
         event_watch.stop()
 
 
+@retry(max_retries=5)
 def k8s_portforward(data, name, namespace=NAMESPACE) -> int:
 
     # Monkey patch socket.create_connection which is used by http.client and

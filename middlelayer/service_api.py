@@ -14,7 +14,7 @@ from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from middlelayer.asset import StaticAssetLoader
 from middlelayer.imla_minio import ImlaMinio
-from middlelayer.models import ServiceDescription, WorkflowStoreInfo
+from middlelayer.models import ServiceDescription, WorkflowStoreInfo, WorkflowInputResource
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 
 
@@ -192,9 +192,17 @@ class ServiceApi():
         service_description = self.get_service_description(service_id)
 
         for resource in service_description.inputs:
+
+            workflow_input_resource = WorkflowInputResource(
+                resource_name=resource.resource_name,
+                type=resource.type,
+                storage_source=f"{WORKFLOW_API_USER_STORAGE}/{service_id}/inputs/{resource.resource_name}",
+                mount_path=resource.mount_path,
+                description="")
+
             self.workflow_backend.handle_input(
                 workflow_id=workflow_id,
-                input_resource=resource,
+                input_resource=workflow_input_resource,
                 get_data_handle=lambda: self.storage.get_resource_data(
                     bucket=WORKFLOW_API_USER_STORAGE,
                     resource=f"{service_id}/inputs/{resource.resource_name}"))
@@ -301,7 +309,7 @@ async def get_services():
     return asset_store.get_assets()
 
 
-@service_api.get("/services/{service_id}/info")
+@service_api.get("/services/{service_id}/info", response_model=ServiceDescription, response_model_exclude_none=True)
 async def get_service_info(service_id: str):
     """
     returns informations to a requested service
@@ -359,11 +367,17 @@ async def put_service_input_info(service_id: str,
     """
     upload service specific file into the user storage
     """
+    workflow_api_logger.info("put input: %s | %s | %s - %i ",
+                             service_id,
+                             resource,
+                             input_file.filename,
+                             input_file.size)
     client.put_resource(service_id=service_id,
                         resource_name=resource,
                         resource_file=input_file)
 
-    return {}
+    return JSONResponse(content={"upload_file": input_file.filename,
+                                 "upload_filesize": input_file.size})
 
 
 @service_api.get("/services/{service_id}/output")
