@@ -78,12 +78,13 @@ async def get_api_key(api_key: str = Security(api_key_header)):
 
 workflow_api_logger.debug("set root_path=%s", os.getenv("FASTAPI_ROOT_PATH"))
 service_api = FastAPI(root_path=os.getenv("FASTAPI_ROOT_PATH"), dependencies=[Depends(get_api_key)])
+# service_api = FastAPI(root_path=os.getenv("FASTAPI_ROOT_PATH"))
 
 ##########
 # DATABASE
 ##########
 
-asset_store = StaticAssetLoader()
+# asset_store = StaticAssetLoader()
 
 
 user_workflow: Dict[str, List[str]] = {}
@@ -114,6 +115,8 @@ class ServiceApi():
 
     def __init__(self):
 
+        self.asset_store = StaticAssetLoader()
+
         self.storage = ImlaMinio(MINIO_CONFIG, WORKFLOW_API_USER_STORAGE)
 
         if WORKFLOW_API_CONFIG.get("workflow_backend") == "kubernetes":
@@ -123,8 +126,11 @@ class ServiceApi():
                 image_pull_secret=WORKFLOW_API_CONFIG.get("workflow_backend_image_pull_secret"),
                 data_side_car_image=WORKFLOW_API_CONFIG.get("workflow_backend_data_side_car_image"))
 
+    def get_assets(self):
+        return self.asset_store.get_assets()
+
     def get_service_description(self, service_id: str) -> ServiceDescription:
-        description = asset_store.get_assets_description(service_id)
+        description = self.asset_store.get_assets_description(service_id)
         if description is None:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST, detail="no valid service_id")
@@ -306,7 +312,7 @@ async def get_services():
     """
     list available services
     """
-    return asset_store.get_assets()
+    return client.get_assets()
 
 
 @service_api.get("/services/{service_id}/info", response_model=ServiceDescription, response_model_exclude_none=True)
@@ -367,17 +373,15 @@ async def put_service_input_info(service_id: str,
     """
     upload service specific file into the user storage
     """
-    workflow_api_logger.info("put input: %s | %s | %s - %i ",
+    workflow_api_logger.info("put input: %s | %s | %s ",
                              service_id,
                              resource,
-                             input_file.filename,
-                             input_file.size)
+                             input_file.filename)
     client.put_resource(service_id=service_id,
                         resource_name=resource,
                         resource_file=input_file)
 
-    return JSONResponse(content={"upload_file": input_file.filename,
-                                 "upload_filesize": input_file.size})
+    return JSONResponse(content={"upload_file": input_file.filename})
 
 
 @service_api.get("/services/{service_id}/output")
@@ -472,7 +476,7 @@ async def get_service_workflow_status(service_id: str, workflow_id: str, verbose
         return JSONResponse(status_code=HTTP_200_OK,
                             content={"service_id": service_id,
                                      "workflow_id": workflow_id,
-                                     "workflow_status": workflow_status.dict()})
+                                     "workflow_status": workflow_status.model_dump()})
     if verbose_level in [1, 2]:
         return PlainTextResponse(status_code=HTTP_200_OK,
                                  content=workflow_status)
