@@ -1,6 +1,6 @@
 from typing import List, Dict, Union, Callable
 from threading import Thread, Event
-from uuid import uuid4, UUID
+from uuid import uuid4
 from io import StringIO
 from enum import Enum
 
@@ -11,8 +11,7 @@ import json
 import dotenv
 
 
-
-from middlelayer.models import ServiceResouce, ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo, WorkflowInputResource
+from middlelayer.models import ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo, WorkflowInputResource
 from middlelayer.k8sClient import K8sPodStateData
 from middlelayer.k8sClient import k8s_create_config_map, k8s_delete_config_map,\
     k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, \
@@ -60,7 +59,7 @@ class K8sJobData(BaseModel):
     input_config: WorkflowInputConfig = None
     job_id: Union[str, None] = None
     job_monitor_event: Union[Event, None] = None
-    job_state: Union[WorkflowJobState, None] = None
+    job_state: Union[WorkflowJobState, None] = WorkflowJobState()
 
     class Config:
         arbitrary_types_allowed = True
@@ -217,7 +216,7 @@ class K8sWorkflowBackend(WorkflowBackend):
                         workflow_finished_handle: Callable):
         job_id = str(uuid4())
 
-        input_config_ref = self.__create_input_config_ref(
+        input_config_id, input_resources = self.__create_input_config_ref(
             workflow_id=workflow_id,
             labels=self.__get_lable(workflow_id=workflow_id,
                                     job_id=job_id))
@@ -225,14 +224,12 @@ class K8sWorkflowBackend(WorkflowBackend):
         config_map_ids = self.dummy_db.get_config_maps(
             key=workflow_id)
 
-        input_resource = self.dummy_db.get_input_config(workflow_id).inputs
-
         pod_manifest = k8s_create_pod_manifest(
             job_uuid=job_id,
             job_config=workflow_resource,
             config_map_ref=config_map_ids,
-            input_config_ref=input_config_ref,
-            input_resources=input_resource,
+            input_config_ref=input_config_id,
+            input_resources=input_resources,
             job_namespace=self.namespace,
             labels=self.__get_lable(workflow_id=workflow_id,
                                     job_id=job_id))
@@ -345,7 +342,7 @@ class K8sWorkflowBackend(WorkflowBackend):
         input_config = self.dummy_db.get_input_config(workflow_id)
 
         if not input_config:
-            return None
+            return (None, None)
 
         input_config_json = [item.model_dump() for item in input_config.inputs]
 
@@ -355,7 +352,7 @@ class K8sWorkflowBackend(WorkflowBackend):
             data={"input-init.json": json.dumps(input_config_json)},
             labels=labels)
 
-        return input_config.id
+        return (input_config.id, input_config.inputs)
 
     def __create_monitor_thread(self,
                                 workflow_id: str,

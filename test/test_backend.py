@@ -4,7 +4,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 from middlelayer.models import ServiceResouce, ServiceResourceType, WorkflowResource, WorkflowStoreInfo, MinioStoreInfo
-from middlelayer.backend import K8sWorkflowBackend, K8sJobData, Event
+from middlelayer.backend import K8sWorkflowBackend, K8sJobData, Event, WorkflowJobState
 
 WORKFLOW_ID = "wf_id"
 
@@ -51,7 +51,7 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
         # setup
         mock_get_data_handle = MagicMock()
         mock_get_data_handle.return_value = SERVICE_DOTENV_DATA
-        #testee = K8sWorkflowBackend(K8S_NAMESPACE)
+        # testee = K8sWorkflowBackend(K8S_NAMESPACE)
 
         with patch("middlelayer.backend.uuid4", return_value=K8S_CONFIGMAP_ID):
             # exercise
@@ -97,7 +97,7 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
             namespace=self.k8s_namespace)
 
         self.assertTrue(self.job_data.job_monitor_event.is_set())
-        self.assertIsNone(self.testee.dummy_db.get_job_data(WORKFLOW_ID))
+        self.assertIsNotNone(self.testee.dummy_db.get_job_data(WORKFLOW_ID))
 
     def test_commit_workflow(self):
         # setup
@@ -129,6 +129,8 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
                 job_uuid=self.job_id,
                 job_config=WORKFLOW_RESOURCE,
                 config_map_ref=[],
+                input_config_ref=None,
+                input_resources=None,
                 job_namespace=self.k8s_namespace,
                 labels={"app": "gx4ki-demo",
                         "workflow-id": self.workflow_id,
@@ -178,6 +180,8 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
                 job_uuid=self.job_id,
                 job_config=WORKFLOW_RESOURCE,
                 config_map_ref=[K8S_CONFIGMAP_ID],
+                input_config_ref=None,
+                input_resources=None,
                 job_namespace=self.k8s_namespace,
                 labels={"app": "gx4ki-demo",
                         "workflow-id": self.workflow_id,
@@ -243,3 +247,21 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
             data=workflow_store_info.json(),
             name=self.job_data.job_id,
             namespace=self.k8s_namespace)
+
+    def test_getJobStateName(self):
+        state = WorkflowJobState()
+
+        job_state = "{\"phase\":\"FINISHED\",\"worker_state\":{\"event_type\":\"MODIFIED\",\"pod_phase\":\"Running\",\"pod_state_condition\":[\"{'last_probe_time': None,\\n 'last_transition_time': datetime.datetime(2023, 7, 26, 7, 38, 18, tzinfo=tzlocal()),\\n 'message': None,\\n 'reason': None,\\n 'status': 'True',\\n 'type': 'Initialized'}\",\"{'last_probe_time': None,\\n 'last_transition_time': datetime.datetime(2023, 7, 26, 7, 39, 21, tzinfo=tzlocal()),\\n 'message': 'containers with unready status: [worker]',\\n 'reason': 'ContainersNotReady',\\n 'status': 'False',\\n 'type': 'Ready'}\",\"{'last_probe_time': None,\\n 'last_transition_time': datetime.datetime(2023, 7, 26, 7, 39, 21, tzinfo=tzlocal()),\\n 'message': 'containers with unready status: [worker]',\\n 'reason': 'ContainersNotReady',\\n 'status': 'False',\\n 'type': 'ContainersReady'}\",\"{'last_probe_time': None,\\n 'last_transition_time': datetime.datetime(2023, 7, 26, 7, 38, 18, tzinfo=tzlocal()),\\n 'message': None,\\n 'reason': None,\\n 'status': 'True',\\n 'type': 'PodScheduled'}\"],\"container_statuses\":{\"data-side-car\":{\"state\":\"running\",\"details\":\"{'started_at': datetime.datetime(2023, 7, 26, 7, 38, 21, tzinfo=tzlocal())}\"},\"worker\":{\"state\":\"terminated\",\"details\":\"{'container_id': 'containerd://5232e7e460e1a0c4c91d4f66d9a677b81353021847eac800e267cab91e1c28a6',\\n 'exit_code': 0,\\n 'finished_at': datetime.datetime(2023, 7, 26, 7, 39, 20, tzinfo=tzlocal()),\\n 'message': None,\\n 'reason': 'Completed',\\n 'signal': None,\\n 'started_at': datetime.datetime(2023, 7, 26, 7, 38, 19, tzinfo=tzlocal())}\"}}}}"
+        state = WorkflowJobState.parse_raw(job_state)
+
+        import ast
+        import json
+
+        print(state.worker_state.pod_state_condition)
+        test = [print(condition) for condition in state.worker_state.pod_state_condition]
+        print(test)
+
+        workflow_job_details = {"job_phase": state.phase.name,
+                                "worker_details": state.worker_state.dict()}
+
+        # print(workflow_job_details)
