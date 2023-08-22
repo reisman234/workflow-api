@@ -3,7 +3,8 @@ import dotenv
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
-from middlelayer.models import ServiceResouce, ServiceResourceType, WorkflowResource, WorkflowStoreInfo, MinioStoreInfo
+from middlelayer.models import (ServiceResouce, InputServiceResource, ServiceResourceType,
+                                WorkflowResource, WorkflowStoreInfo, MinioStoreInfo)
 from middlelayer.backend import K8sWorkflowBackend, K8sJobData, Event, WorkflowJobState
 
 WORKFLOW_ID = "wf_id"
@@ -19,6 +20,14 @@ SERVICE_RESOURCE = ServiceResouce(
 )
 SERVICE_DOTENV_DATA = "data=data"
 
+INPUT_CONFIG_ID = "input_config_id"
+DATA_INPUT_SERVICE_RESOURCE = InputServiceResource(
+    resource_name="data",
+    type=ServiceResourceType.data,
+    description="data",
+    mount_path="/data/test"
+)
+
 WORKFLOW_RESOURCE = WorkflowResource(
     worker_image="test_image",
     worker_image_output_directory="test_directory",
@@ -26,7 +35,7 @@ WORKFLOW_RESOURCE = WorkflowResource(
 )
 
 
-class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
+class TestK8sWorkflowBackend(unittest.TestCase):
 
     def setUp(self) -> None:
         self.job_id = "test_job_id"
@@ -72,6 +81,40 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
                     stream=StringIO(SERVICE_DOTENV_DATA))),
                 labels={"app": "gx4ki-demo",
                         "workflow-id": self.workflow_id})
+
+    @patch('middlelayer.backend.k8s_create_config_map')
+    def test_handle_data_input(self, mock_k8s_create_config_map: MagicMock):
+        """
+        checks if input resources of type ServiceResourceType.data or ServiceResourceType.zip_data
+        properly handled.
+        """
+
+        # setup
+        mock_get_data_handle = MagicMock()
+        mock_get_data_handle.return_value = SERVICE_DOTENV_DATA
+
+        with patch("middlelayer.backend.uuid4", return_value=K8S_CONFIGMAP_ID):
+            # exercise
+
+            self.assertNotIn(self.workflow_id,
+                             self.testee.dummy_db.data,
+                             "workflow id should not exist")
+
+            self.testee.handle_input(
+                self.workflow_id,
+                DATA_INPUT_SERVICE_RESOURCE,
+                mock_get_data_handle)
+
+            # verify
+            self.assertIsNotNone(
+                self.testee.dummy_db.data[self.workflow_id].input_config,
+                "input config should NOT BE none")
+            self.assertIn(
+                DATA_INPUT_SERVICE_RESOURCE,
+                self.testee.dummy_db.data[self.workflow_id].input_config.inputs,
+                "expected data not in inputs")
+
+            mock_k8s_create_config_map.assert_not_called()
 
     @patch('middlelayer.backend.k8s_delete_config_map')
     @patch('middlelayer.backend.k8s_delete_pod')
@@ -182,6 +225,68 @@ class TestK8sWorkflowBackend_handleInput(unittest.TestCase):
                 config_map_ref=[K8S_CONFIGMAP_ID],
                 input_config_ref=None,
                 input_resources=None,
+                job_namespace=self.k8s_namespace,
+                labels={"app": "gx4ki-demo",
+                        "workflow-id": self.workflow_id,
+                        "job-id": self.job_id})
+
+            mock_k8s_create_pod.assert_called_once_with(
+                manifest=job_manifest,
+                namespace=self.k8s_namespace)
+
+            mock_thread.assert_called_once()
+            mock_thread_instance.start.assert_called_once()
+
+            mock_event.assert_called_once()
+            assert self.testee.dummy_db.get_job_monitor_event(
+                self.workflow_id) == mock_event_instance
+
+    def test_commit_workflow_with_inputs(self):
+        # setup
+        job_manifest = "manifest"
+
+        with patch("middlelayer.backend.uuid4") as mock_uuid4,\
+                patch("middlelayer.backend.k8s_create_pod_manifest") as mock_k8s_create_pod_manifest,\
+                patch("middlelayer.backend.k8s_create_pod") as mock_k8s_create_pod,\
+                patch("middlelayer.backend.k8s_create_config_map") as mock_k8s_create_config_map,\
+                patch("middlelayer.backend.Event") as mock_event,\
+                patch("middlelayer.backend.Thread") as mock_thread:
+
+            mock_uuid4.side_effect = [INPUT_CONFIG_ID, self.job_id]
+
+            mock_thread_instance = mock_thread.return_value
+            mock_event_instance = mock_event.return_value
+
+            mock_workflow_finished_handle = MagicMock()
+
+            mock_k8s_create_pod_manifest.return_value = job_manifest
+
+            self.testee.dummy_db.append_config_map(
+                self.workflow_id, K8S_CONFIGMAP_ID)
+
+            # exercise
+
+            self.testee.handle_input(
+                self.workflow_id,
+                DATA_INPUT_SERVICE_RESOURCE,
+                None)
+
+            self.testee.commit_workflow(
+                workflow_id=self.workflow_id,
+                workflow_resource=WORKFLOW_RESOURCE,
+                workflow_finished_handle=mock_workflow_finished_handle)
+
+            # verify
+            mock_uuid4.assert_called()
+
+            mock_k8s_create_config_map.assert_called_once()
+
+            mock_k8s_create_pod_manifest.assert_called_once_with(
+                job_uuid=self.job_id,
+                job_config=WORKFLOW_RESOURCE,
+                config_map_ref=[K8S_CONFIGMAP_ID],
+                input_config_ref=INPUT_CONFIG_ID,
+                input_resources=[DATA_INPUT_SERVICE_RESOURCE],
                 job_namespace=self.k8s_namespace,
                 labels={"app": "gx4ki-demo",
                         "workflow-id": self.workflow_id,

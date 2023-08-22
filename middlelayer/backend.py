@@ -50,8 +50,12 @@ class WorkflowJobState(BaseModel):
 
 
 class WorkflowInputConfig(BaseModel):
-    id: str = str(uuid4())
+    id: str = None
     inputs: List[WorkflowInputResource] = []
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.id=str(uuid4())
 
 
 class K8sJobData(BaseModel):
@@ -195,9 +199,10 @@ class K8sWorkflowBackend(WorkflowBackend):
         In case for environment data create a config_map.
         For data create a list which will be downloaded by the init container
         """
-        config_map_id = str(uuid4())
+
 
         if input_resource.type is ServiceResourceType.environment:
+            config_map_id = str(uuid4())
             config_map_data = dict(dotenv.dotenv_values(
                 stream=StringIO(get_data_handle())))
 
