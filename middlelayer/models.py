@@ -1,7 +1,7 @@
 # pylint: disable=no-name-in-module
 from typing import List, Union
 from datetime import datetime, timedelta
-from enum import IntEnum
+from enum import IntEnum, Enum
 from pydantic import BaseModel
 
 
@@ -72,3 +72,17 @@ class WorkflowStoreInfo(BaseModel):
     destination_path: str
     result_directory: str = "/output"
     result_files: List[str]
+
+#####################
+# K8S SPECIFIC MODELS
+#####################
+
+
+class K8sStorageType(str, Enum):
+    PERSISTENT_VOLUME_CLAIM = "PERSISTENT_VOLUME_CLAIM"
+    EMPTY_DIR = "EMPTY_DIR"
+
+
+class K8sBackendConfig(BaseModel):
+    job_storage_type: Union[K8sStorageType, None] = K8sStorageType.EMPTY_DIR
+    job_storage_size: Union[str, None] = "5Gi"

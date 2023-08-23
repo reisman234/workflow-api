@@ -14,7 +14,7 @@ from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from middlelayer.asset import StaticAssetLoader
 from middlelayer.imla_minio import ImlaMinio
-from middlelayer.models import ServiceDescription, WorkflowStoreInfo, WorkflowInputResource
+from middlelayer.models import ServiceDescription, WorkflowStoreInfo, WorkflowInputResource, K8sBackendConfig
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 
 
@@ -120,7 +120,17 @@ class ServiceApi():
         self.storage = ImlaMinio(MINIO_CONFIG, WORKFLOW_API_USER_STORAGE)
 
         if WORKFLOW_API_CONFIG.get("workflow_backend") == "kubernetes":
+
+            k8s_backend_config = K8sBackendConfig(
+                job_storage_type=WORKFLOW_API_CONFIG.get("workflow_k8s_backend_job_storage_type"),
+                job_storage_size=WORKFLOW_API_CONFIG.get("workflow_k8s_backend_job_storage_size")
+            )
+
+            workflow_api_logger.debug("provided kubernetes backend config: %s",
+                                      k8s_backend_config.model_dump_json(exclude_none=True, exclude_unset=True))
+
             self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
+                k8s_backend_config=k8s_backend_config,
                 kubeconfig=WORKFLOW_API_CONFIG.get("workflow_backend_kubeconfig"),
                 namespace=WORKFLOW_API_CONFIG.get("workflow_backend_namespace"),
                 image_pull_secret=WORKFLOW_API_CONFIG.get("workflow_backend_image_pull_secret"),

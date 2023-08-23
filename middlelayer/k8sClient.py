@@ -11,7 +11,8 @@ from kubernetes.stream import portforward
 from kubernetes.client.exceptions import ApiException
 
 from middlelayer.decorators import retry
-from middlelayer.models import WorkflowResource, BaseModel, WorkflowInputResource, ServiceResourceType
+from middlelayer.models import (WorkflowResource, BaseModel, WorkflowInputResource, ServiceResourceType,
+                                K8sBackendConfig)
 
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -42,8 +43,19 @@ IMAGE_PULL_SECRET = "imla-registry"
 
 DATA_SIDE_CAR_IMAGE = "imlahso/data-side-car:latest"
 
+K8S_BACKEND_CONFIG: K8sBackendConfig = None
 
-def k8s_setup_config(config_file=None, image_pull_secret=None, data_side_car_image=None):
+
+def k8s_setup_config(k8s_backend_config: K8sBackendConfig,
+                     config_file=None,
+                     image_pull_secret=None,
+                     data_side_car_image=None):
+
+    assert k8s_backend_config != None
+
+    global K8S_BACKEND_CONFIG
+    K8S_BACKEND_CONFIG = k8s_backend_config
+
     if config_file:
         # load a specific config_file
         config.load_kube_config(config_file=config_file)
@@ -72,12 +84,37 @@ def k8s_create_pod_manifest(job_uuid,
                             input_config_ref: str = None,
                             input_resources: List[WorkflowInputResource] = None,
                             job_namespace=NAMESPACE,
+                            persistent_volume_claim_id: str = None,
                             labels=None) -> client.V1Pod:
 
+    JOB_VOLUME_NAME = "workflow-job-volume"
+
     data_init_container = None
+    containers = []
     worker_container_volume_mounts = []
     pod_spec_volumes = []
     pod_spec_init_containers = []
+
+    workflow_job_volume = None
+    if persistent_volume_claim_id:
+        workflow_job_volume = client.V1Volume(
+            name=JOB_VOLUME_NAME,
+            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                claim_name=persistent_volume_claim_id)
+        )
+
+    # if no workflow_job_volume use EmptyDir as fallback
+    if not workflow_job_volume:
+        workflow_job_volume = client.V1Volume(
+            name=JOB_VOLUME_NAME,
+            empty_dir=client.V1EmptyDirVolumeSource(
+                size_limit=K8S_BACKEND_CONFIG.job_storage_size)
+        )
+
+    pod_spec_volumes.append(
+        workflow_job_volume
+    )
+
     if input_config_ref:
 
         pod_spec_volumes.append(
@@ -86,13 +123,6 @@ def k8s_create_pod_manifest(job_uuid,
                 secret=client.V1SecretVolumeSource(
                     secret_name="workflow-api-config"
                 )
-            )
-        )
-
-        pod_spec_volumes.append(
-            client.V1Volume(
-                name="input-mount",
-                empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi")
             )
         )
 
@@ -130,7 +160,7 @@ def k8s_create_pod_manifest(job_uuid,
                 ),
                 client.V1VolumeMount(
                     mount_path="/data/",
-                    name="input-mount"
+                    name=JOB_VOLUME_NAME
                 )
             ]
         )
@@ -150,7 +180,7 @@ def k8s_create_pod_manifest(job_uuid,
                 client.V1VolumeMount(
                     mount_path=mount_path,
                     sub_path=sub_path,
-                    name="input-mount"
+                    name=JOB_VOLUME_NAME
                 )
             )
 
@@ -160,11 +190,24 @@ def k8s_create_pod_manifest(job_uuid,
         worker_container_volume_mounts.append(
             client.V1VolumeMount(
                 mount_path=job_config.worker_image_output_directory,
-                name="output-mount"
+                name=JOB_VOLUME_NAME
             )
         )
 
-    container = client.V1Container(
+        side_car = client.V1Container(
+            name="data-side-car",
+            image=DATA_SIDE_CAR_IMAGE,
+            image_pull_policy="Always"
+        )
+
+        side_car.volume_mounts = [
+            client.V1VolumeMount(
+                mount_path="/output",
+                name=JOB_VOLUME_NAME)]
+
+        containers.append(side_car)
+
+    worker_container = client.V1Container(
         name="worker",
         image=job_config.worker_image,
         image_pull_policy="Always",
@@ -174,35 +217,18 @@ def k8s_create_pod_manifest(job_uuid,
     )
 
     if job_config.gpu:
-        container.resources = client.V1ResourceRequirements(
+        worker_container.resources = client.V1ResourceRequirements(
             limits={"nvidia.com/gpu": "1"})
 
     if config_map_ref:
         env_from = [client.V1EnvFromSource(config_map_ref=client.V1ConfigMapEnvSource(name=ref))
                     for ref in config_map_ref]
-        container.env_from = env_from
+        worker_container.env_from = env_from
 
-    side_car = client.V1Container(
-        name="data-side-car",
-        image=DATA_SIDE_CAR_IMAGE,
-        image_pull_policy="Always"
-    )
-
-    if job_config.worker_image_output_directory:
-        side_car.volume_mounts = [
-            client.V1VolumeMount(
-                mount_path="/output",
-                name="output-mount")]
-
-    pod_spec_volumes.append(
-        client.V1Volume(
-            name="output-mount",
-            empty_dir=client.V1EmptyDirVolumeSource(size_limit="2Gi")
-        )
-    )
+    containers.append(worker_container)
 
     pod_spec = client.V1PodSpec(restart_policy="Never",
-                                containers=[container, side_car],
+                                containers=containers,
                                 image_pull_secrets=[
                                     client.V1LocalObjectReference(name=IMAGE_PULL_SECRET)],
                                 init_containers=pod_spec_init_containers,
@@ -420,3 +446,30 @@ def k8s_get_pod_log(pod_name: str,
                                                           namespace=namespace,
                                                           tail_lines=tail_lines)
     return response
+
+
+def k8s_create_persistent_volume_claim(name: str,
+                                       namespace: str,
+                                       storage_size_in_Gi: str,
+                                       labels=None):
+
+    pvc_spec = client.V1PersistentVolumeClaimSpec(access_modes=["ReadWriteOnce"],
+                                                  resources={"requests": {"storage": storage_size_in_Gi}})
+
+    pvc_manifest = client.V1PersistentVolumeClaim(
+        metadata=client.V1ObjectMeta(
+            name=name,
+            namespace=namespace,
+            labels=labels),
+        spec=pvc_spec
+    )
+
+    client.CoreV1Api().create_namespaced_persistent_volume_claim(body=pvc_manifest,
+                                                                 namespace=namespace)
+
+
+def k8s_delete_persistent_volume_claim(name,
+                                       namespace):
+    resonse = client.CoreV1Api().delete_namespaced_persistent_volume_claim(name=name,
+                                                                           namespace=namespace)
+    print(resonse)

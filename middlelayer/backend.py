@@ -11,13 +11,17 @@ import json
 import dotenv
 
 
-from middlelayer.models import ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo, WorkflowInputResource
+from middlelayer.models import (
+    ServiceResourceType, WorkflowResource, BaseModel, WorkflowStoreInfo, WorkflowInputResource,
+    K8sBackendConfig, K8sStorageType)
+
 from middlelayer.k8sClient import K8sPodStateData
 from middlelayer.k8sClient import k8s_create_config_map, k8s_delete_config_map,\
     k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, \
     k8s_setup_config,\
     k8s_watch_pod_events, k8s_get_pod_log, \
-    k8s_portforward
+    k8s_portforward, \
+    k8s_create_persistent_volume_claim, k8s_delete_persistent_volume_claim
 
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -55,12 +59,13 @@ class WorkflowInputConfig(BaseModel):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.id=str(uuid4())
+        self.id = str(uuid4())
 
 
 class K8sJobData(BaseModel):
     config_maps: Union[List[str], None] = []
     input_config: WorkflowInputConfig = None
+    volume_claim_id: Union[str, None] = None
     job_id: Union[str, None] = None
     job_monitor_event: Union[Event, None] = None
     job_state: Union[WorkflowJobState, None] = WorkflowJobState()
@@ -140,6 +145,11 @@ class SimpleDB():
             return None
         return self.data.get(key)
 
+    def set_job_volume_claim_id(self, key: str, volume_claim_id: str):
+        if key not in self.data:
+            self.data[key] = K8sJobData()
+        self.data.get(key).volume_claim_id = volume_claim_id
+
     def insert_job_id(self, key: str, value: str):
         if key not in self.data:
             self.data[key] = K8sJobData()
@@ -182,11 +192,20 @@ class K8sWorkflowBackend(WorkflowBackend):
                  namespace,
                  kubeconfig=None,
                  image_pull_secret=None,
-                 data_side_car_image=None):
+                 data_side_car_image=None,
+                 k8s_backend_config: K8sBackendConfig = None):
         self.dummy_db = SimpleDB()
         self.namespace = namespace
 
+        if k8s_backend_config:
+            self.k8s_backend_config = K8sBackendConfig.model_validate(k8s_backend_config.model_dump(exclude_unset=True,
+                                                                                                    exclude_none=True))
+
+        else:
+            self.k8s_backend_config = K8sBackendConfig()
+
         k8s_setup_config(
+            k8s_backend_config=self.k8s_backend_config,
             config_file=kubeconfig,
             image_pull_secret=image_pull_secret,
             data_side_car_image=data_side_car_image)
@@ -199,7 +218,6 @@ class K8sWorkflowBackend(WorkflowBackend):
         In case for environment data create a config_map.
         For data create a list which will be downloaded by the init container
         """
-
 
         if input_resource.type is ServiceResourceType.environment:
             config_map_id = str(uuid4())
@@ -221,13 +239,32 @@ class K8sWorkflowBackend(WorkflowBackend):
                         workflow_finished_handle: Callable):
         job_id = str(uuid4())
 
+        workflow_lables = self.__get_lable(
+            workflow_id=workflow_id,
+            job_id=job_id
+        )
+
         input_config_id, input_resources = self.__create_input_config_ref(
             workflow_id=workflow_id,
-            labels=self.__get_lable(workflow_id=workflow_id,
-                                    job_id=job_id))
+            labels=workflow_lables)
 
-        config_map_ids = self.dummy_db.get_config_maps(
-            key=workflow_id)
+        config_map_ids = self.dummy_db.get_config_maps(key=workflow_id)
+
+        persistent_volume_claim_id = None
+        if self.k8s_backend_config.job_storage_type != K8sStorageType.EMPTY_DIR:
+
+            if self.k8s_backend_config.job_storage_type is K8sStorageType.PERSISTENT_VOLUME_CLAIM:
+                persistent_volume_claim_id = str(uuid4())
+                k8s_create_persistent_volume_claim(
+                    name=persistent_volume_claim_id,
+                    namespace=self.namespace,
+                    storage_size_in_Gi=self.k8s_backend_config.job_storage_size,
+                    labels=workflow_lables
+                )
+                self.dummy_db.set_job_volume_claim_id(workflow_id,
+                                                      persistent_volume_claim_id)
+            else:
+                raise ValueError("unknown k8s storage type")
 
         pod_manifest = k8s_create_pod_manifest(
             job_uuid=job_id,
@@ -236,8 +273,9 @@ class K8sWorkflowBackend(WorkflowBackend):
             input_config_ref=input_config_id,
             input_resources=input_resources,
             job_namespace=self.namespace,
-            labels=self.__get_lable(workflow_id=workflow_id,
-                                    job_id=job_id))
+            persistent_volume_claim_id=persistent_volume_claim_id,
+            labels=workflow_lables
+        )
 
         k8s_create_pod(
             manifest=pod_manifest,
@@ -267,12 +305,15 @@ class K8sWorkflowBackend(WorkflowBackend):
             k8s_delete_config_map(config_map_id,
                                   self.namespace)
 
-        input_config = self.dummy_db.get_input_config(key=workflow_id)
-        if input_config:
+        if job_data.input_config:
             k8s_delete_config_map(
-                name=input_config.id,
+                name=job_data.input_config.id,
                 namespace=self.namespace
             )
+
+        if job_data.volume_claim_id:
+            k8s_delete_persistent_volume_claim(name=job_data.volume_claim_id,
+                                               namespace=self.namespace)
 
         if job_data.job_id:
             k8s_delete_pod(

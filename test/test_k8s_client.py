@@ -7,21 +7,22 @@ from middlelayer.k8sClient import k8s_setup_config, k8s_get_healthz,\
     k8s_create_pod_manifest, k8s_create_pod, k8s_delete_pod, k8s_list_pod_names,\
     k8s_create_service, k8s_delte_service,\
     k8s_watch_pod_events, k8s_get_pod_log,\
-    k8s_portforward
+    k8s_portforward,\
+    k8s_create_persistent_volume_claim, k8s_delete_persistent_volume_claim
 
 
 from middlelayer.backend import WorkflowResource
 
+
 POD_NAMESPACE = "default"
 POD_NAME = "test-pod"
+APP_LABLES = {"app": POD_NAME}
 POD_MANIFEST = {
     "kind": "Pod",
     "apiVersion": "v1",
     "metadata": {
         "name": POD_NAME,
-        "labels": {
-            "app": POD_NAME
-        }
+        "labels": APP_LABLES
     },
     "spec": {
         "containers": [
@@ -46,7 +47,7 @@ class TestK8sClient(TestCase):
 
     def setUp(self) -> None:
         # loads $
-        k8s_setup_config(config_file="/home/ralph/.kube/minikube.config")
+        k8s_setup_config(config_file="./config/kube/minikube.config")
         self.test_config_map_name = "test-cm"
 
         self.workflow_resource = WorkflowResource(
@@ -133,7 +134,8 @@ class TestK8sClient(TestCase):
         k8s_list_pod_names()
 
     def test_portford(self):
-        pass
+
+        # NOTE TEST WILL FAIL
         # TODO make test standalone
 
         k8s_portforward(
@@ -146,7 +148,7 @@ class TestK8sClient(TestCase):
         k8s_create_pod(POD_MANIFEST)
 
         def pod_state_handle(pod_state: K8sPodStateData):
-            print(pod_state)
+            # print(pod_state)
 
             if pod_state.container_statuses is None:
                 return False
@@ -166,8 +168,21 @@ class TestK8sClient(TestCase):
 
     def test_get_pod_log(self):
 
+        # NOTE TEST WILL FAIL
+        # TODO make test standalone
         logs = k8s_get_pod_log(
             pod_name="worker-5b64886fd5-w5xsq", tail_lines=None)
 
         print(logs)
         self.assertIsInstance(logs, str)
+
+    def test_create_persistent_volume_claim(self):
+
+        k8s_create_persistent_volume_claim(name="test-pvc",
+                                           namespace="default",
+                                           storage_size_in_Gi="5Gi",
+                                           labels=APP_LABLES)
+
+    def test_delete_persistent_volume_claim(self):
+        k8s_delete_persistent_volume_claim(name="test-pvc",
+                                           namespace="default")
