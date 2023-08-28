@@ -78,13 +78,12 @@ async def get_api_key(api_key: str = Security(api_key_header)):
 
 workflow_api_logger.debug("set root_path=%s", os.getenv("FASTAPI_ROOT_PATH"))
 service_api = FastAPI(root_path=os.getenv("FASTAPI_ROOT_PATH"), dependencies=[Depends(get_api_key)])
-# service_api = FastAPI(root_path=os.getenv("FASTAPI_ROOT_PATH"))
 
 ##########
 # DATABASE
 ##########
 
-# asset_store = StaticAssetLoader()
+asset_store = StaticAssetLoader()
 
 
 user_workflow: Dict[str, List[str]] = {}
