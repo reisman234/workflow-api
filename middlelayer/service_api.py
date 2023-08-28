@@ -14,7 +14,7 @@ from starlette.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from middlelayer.asset import StaticAssetLoader
 from middlelayer.imla_minio import ImlaMinio
-from middlelayer.models import ServiceDescription, WorkflowStoreInfo
+from middlelayer.models import ServiceDescription, WorkflowStoreInfo, WorkflowInputResource, K8sBackendConfig
 from middlelayer.backend import K8sWorkflowBackend, WorkflowBackend
 
 
@@ -114,17 +114,32 @@ class ServiceApi():
 
     def __init__(self):
 
+        self.asset_store = StaticAssetLoader()
+
         self.storage = ImlaMinio(MINIO_CONFIG, WORKFLOW_API_USER_STORAGE)
 
         if WORKFLOW_API_CONFIG.get("workflow_backend") == "kubernetes":
+
+            k8s_backend_config = K8sBackendConfig(
+                job_storage_type=WORKFLOW_API_CONFIG.get("workflow_k8s_backend_job_storage_type"),
+                job_storage_size=WORKFLOW_API_CONFIG.get("workflow_k8s_backend_job_storage_size")
+            )
+
+            workflow_api_logger.debug("provided kubernetes backend config: %s",
+                                      k8s_backend_config.model_dump_json(exclude_none=True, exclude_unset=True))
+
             self.workflow_backend: WorkflowBackend = K8sWorkflowBackend(
+                k8s_backend_config=k8s_backend_config,
                 kubeconfig=WORKFLOW_API_CONFIG.get("workflow_backend_kubeconfig"),
                 namespace=WORKFLOW_API_CONFIG.get("workflow_backend_namespace"),
                 image_pull_secret=WORKFLOW_API_CONFIG.get("workflow_backend_image_pull_secret"),
                 data_side_car_image=WORKFLOW_API_CONFIG.get("workflow_backend_data_side_car_image"))
 
+    def get_assets(self):
+        return self.asset_store.get_assets()
+
     def get_service_description(self, service_id: str) -> ServiceDescription:
-        description = asset_store.get_assets_description(service_id)
+        description = self.asset_store.get_assets_description(service_id)
         if description is None:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST, detail="no valid service_id")
@@ -192,9 +207,17 @@ class ServiceApi():
         service_description = self.get_service_description(service_id)
 
         for resource in service_description.inputs:
+
+            workflow_input_resource = WorkflowInputResource(
+                resource_name=resource.resource_name,
+                type=resource.type,
+                storage_source=f"{WORKFLOW_API_USER_STORAGE}/{service_id}/inputs/{resource.resource_name}",
+                mount_path=resource.mount_path,
+                description="")
+
             self.workflow_backend.handle_input(
                 workflow_id=workflow_id,
-                input_resource=resource,
+                input_resource=workflow_input_resource,
                 get_data_handle=lambda: self.storage.get_resource_data(
                     bucket=WORKFLOW_API_USER_STORAGE,
                     resource=f"{service_id}/inputs/{resource.resource_name}"))
@@ -298,10 +321,10 @@ async def get_services():
     """
     list available services
     """
-    return asset_store.get_assets()
+    return client.get_assets()
 
 
-@service_api.get("/services/{service_id}/info")
+@service_api.get("/services/{service_id}/info", response_model=ServiceDescription, response_model_exclude_none=True)
 async def get_service_info(service_id: str):
     """
     returns informations to a requested service
@@ -359,11 +382,15 @@ async def put_service_input_info(service_id: str,
     """
     upload service specific file into the user storage
     """
+    workflow_api_logger.info("put input: %s | %s | %s ",
+                             service_id,
+                             resource,
+                             input_file.filename)
     client.put_resource(service_id=service_id,
                         resource_name=resource,
                         resource_file=input_file)
 
-    return {}
+    return JSONResponse(content={"upload_file": input_file.filename})
 
 
 @service_api.get("/services/{service_id}/output")
@@ -458,7 +485,7 @@ async def get_service_workflow_status(service_id: str, workflow_id: str, verbose
         return JSONResponse(status_code=HTTP_200_OK,
                             content={"service_id": service_id,
                                      "workflow_id": workflow_id,
-                                     "workflow_status": workflow_status.dict()})
+                                     "workflow_status": workflow_status.model_dump()})
     if verbose_level in [1, 2]:
         return PlainTextResponse(status_code=HTTP_200_OK,
                                  content=workflow_status)

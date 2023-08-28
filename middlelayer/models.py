@@ -1,8 +1,7 @@
 # pylint: disable=no-name-in-module
-
 from typing import List, Union
 from datetime import datetime, timedelta
-from enum import IntEnum
+from enum import IntEnum, Enum
 from pydantic import BaseModel
 
 
@@ -15,15 +14,28 @@ class Service():
 class ServiceResourceType(IntEnum):
     environment = 1
     data = 2
+    data_zip = 3
 
 # TODO environment type data size in k8s can only be 1MB in v1.21 and 8MB v1.22,
 # it depends on the etcd
+
+
+class WorkflowInputResource(BaseModel):
+    resource_name: str
+    type:  ServiceResourceType
+    storage_source: str
+    mount_path: Union[str, None] = None
+    description: str
 
 
 class ServiceResouce(BaseModel):
     resource_name: str
     type: ServiceResourceType
     description: str
+
+
+class InputServiceResource(ServiceResouce):
+    mount_path: Union[str, None] = None
 
 
 class WorkflowResource(BaseModel):
@@ -36,7 +48,7 @@ class WorkflowResource(BaseModel):
 
 class ServiceDescription(BaseModel):
     service_id: str
-    inputs: List[ServiceResouce]
+    inputs: List[InputServiceResource]
     outputs: List[ServiceResouce]
     workflow_resource: WorkflowResource
 
@@ -60,3 +72,17 @@ class WorkflowStoreInfo(BaseModel):
     destination_path: str
     result_directory: str = "/output"
     result_files: List[str]
+
+#####################
+# K8S SPECIFIC MODELS
+#####################
+
+
+class K8sStorageType(str, Enum):
+    PERSISTENT_VOLUME_CLAIM = "PERSISTENT_VOLUME_CLAIM"
+    EMPTY_DIR = "EMPTY_DIR"
+
+
+class K8sBackendConfig(BaseModel):
+    job_storage_type: Union[K8sStorageType, None] = K8sStorageType.EMPTY_DIR
+    job_storage_size: Union[str, None] = "5Gi"

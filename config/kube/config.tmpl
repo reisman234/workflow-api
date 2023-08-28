@@ -2,18 +2,18 @@ apiVersion: v1
 clusters:
 - cluster:
     certificate-authority-data: {MINIKUBE_CA_CERT}
-    server: https://{MINIKUBE_IP}:8443
-  name: minikube
+    server: {MINIKUBE_IP}
+  name: workflow-api-cluster
 contexts:
 - context:
-    cluster: minikube
-    namespace: gx4ki-demo
-    user: gx4ki-api
-  name: minikube
-current-context: minikube
+    cluster: workflow-api-cluster
+    namespace: workflow-api-demo
+    user: workflow-api
+  name: workflow-api-cluster
+current-context: workflow-api-cluster
 kind: Config
 preferences: {}
 users:
-- name: gx4ki-api
+- name: workflow-api
   user:
-    token: {GX4KI_API_SERVICE_ACCOUNT_TOKEN}
+    token: {API_SERVICE_ACCOUNT_TOKEN}
