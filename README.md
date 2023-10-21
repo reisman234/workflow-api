@@ -50,32 +50,23 @@ But there are some prerequisites which needs to be addressed bevor we can deploy
   - check your minikubes cluster ip with `minikube ip` adapt the ip config in [docker-compose](./docker-compose.yaml) file.
 - docker
 - docker-compose
+- the data-side-car container needs be ready, public version `imlahos/data-side-car`
+- a workflow-job
+  - [dummy-job](https://github.com/reisman234/dummy-job) for testing purpose, public available `imlahso/dummy-job`
 
 ### Configuration
 
 1. Create `workflow-api.cfg`, by copying the prepared local config file `cp ./config/workflow-api.demo.cfg ./config/workflow-api.cfg`
-2. Create the demo namespace: `kubectl create namespace gx4ki-demo`
-3. Create the ServiceAccount `workflow-api-service-account` for the workflow-api  `kubectl -n gx4ki-demo apply -f k8s/gx4ki-sa-auth.yaml`
-4. Prepare the kubeconfig file:
-   1. Copy the template `cp config/kube/config.tmpl config/kube/config`
-   2. Get the Token for the created ServiceAccount (`{GX4KI_API_SERVICE_ACCOUNT_TOKEN}`): <br>
-      `kubectl -n gx4ki-demo get secret workflow-api-token -o jsonpath={.data.token} | base64 -d`
-   3. Get the Cluster CA certificate (`{MINIKUBE_CA_CRT}`): <br>
-      `kubectl -n gx4ki-demo get secret workflow-api-token -o jsonpath={.data.'ca\.crt'}`
-   4. Get the Clusters IP (`{MINIKUBE_IP}`): <br>
-      `kubectl cluster-info | grep "control plane" | grep -o -E "https?.*"`
-   5. Check the if the kubeconfig works, by running and deleting a pod. <br>
-      1. Run a pod:
-          ```bash
+2. Use the `make demo-config`  target from the [makefile](./makefile) to prepare the k8s-cluster and the kubeconfig file.
+   - test the created kubeconfig file by running and deleting a pod:
+      - start pod:
+        ```bash
           kubectl --kubeconfig config/kube/config -n gx4ki-demo run test --image=alpine -- sh
-          ```
-      2. Delete the pod:
-         ```bash
+        ```
+      - remove pod:
+        ```bash
          kubectl --kubeconfig config/kube/config -n gx4ki-demo delete pod test
-         ```
-5. (Optional) If you want to pull all the required images from a private registry, prepare and provide to the namespace the image pull secret.
-The images for dummy-worker (`imlahso/dummy-job:latest`) and also the required data-side-car (`imlahso/data-side-car:latest`) are public available.
-
+        ```
 ### Build and Deploy the Workflow-API
 
 - Build and run the workflow-api via `docker-compose`: <br>

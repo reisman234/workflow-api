@@ -27,7 +27,7 @@ services:
 
   workflow-api:
     build: .
-    image: gx4ki/workflow-api:latest
+    image: imlahso/workflow-api:latest
     container_name: workflow-api
     volumes:
       - ./config/workflow-api.cfg:/opt/config/workflow-api.cfg
